@@ -1,0 +1,90 @@
+API Endpoints
+Базовый путь: /api
+
+Аутентификация
+POST /auth/register - регистрация
+
+POST /auth/login - вход
+
+POST /auth/refresh - обновление токена
+
+POST /auth/logout - выход
+
+Пользователи
+GET /user/me - текущий пользователь
+
+PUT /user/me/password - смена пароля
+
+PUT /user/me/phone - смена телефона
+
+Профили
+GET /profile/{userId} - публичный профиль
+
+GET /profile/me - свой профиль
+
+PUT /profile/me - обновление профиля
+
+POST /profile/me/avatar - загрузка аватара
+
+Объявления
+GET /ads - список объявлений
+
+POST /ads - создание
+
+GET /ads/{id} - получение
+
+PUT /ads/{id} - обновление
+
+DELETE /ads/{id} - удаление
+
+GET /ads/me - свои объявления
+
+Отклики
+POST /ads/{adId}/responses - откликнуться
+
+GET /ads/{adId}/responses - отклики на объявление
+
+PUT /responses/{responseId} - изменить статус
+
+DELETE /responses/{responseId} - удалить отклик
+
+Модерация (MODERATOR, ADMIN)
+GET /moderation/ads - объявления на модерации
+
+PUT /moderation/ads/{adId}/approve - одобрить
+
+PUT /moderation/ads/{adId}/reject - отклонить
+
+Администрирование (ADMIN)
+GET /admin/users - список пользователей
+
+PUT /admin/users/{id}/role - смена роли
+
+PUT /admin/users/{id}/status - смена статуса
+
+GET /admin/ads - все объявления
+
+Структура ответов
+Все ответы в формате JSON:
+
+json
+{
+  "success": true,
+  "message": "Сообщение (опционально)",
+  "data": { ... }
+}
+Безопасность
+JWT access token (30 минут)
+
+Refresh token (7 дней) хранится в БД
+
+Пароли хешируются BCrypt
+
+Доступ к эндпоинтам на основе ролей (USER, MODERATOR, ADMIN)
+
+Логирование
+Логи пишутся в /var/log/varamy/application.log
+
+Ротация логов по дням и размеру (100MB)
+
+Ошибки дублируются в error.log

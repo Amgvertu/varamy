@@ -1,0 +1,213 @@
+application.yml============================================
+spring:
+  application:
+    name: varamy
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:vara_my}
+    username: ${DB_USER:vara}
+    password: ${DB_PASSWORD:vara}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+      dialect: org.hibernate.dialect.PostgreSQLDialect
+      jdbc:
+        batch_size: 20
+      format_sql: true
+    show-sql: false
+
+  flyway:
+    enabled: false
+
+server:
+  port: ${SERVER_PORT:8081}
+  error:
+    include-message: always
+    include-binding-errors: always
+
+jwt:
+  secret: ${JWT_SECRET:mySecretKeyForJWTTokenGenerationMustBeAtLeast32CharactersLong}
+  access-token-expiration: 1800000 # 30 минут
+  refresh-token-expiration: 604800000 # 7 дней
+
+logging:
+  level:
+    info.prorabka.varamy: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.type.descriptor.sql: TRACE
+    org.springframework.orm.jpa: DEBUG
+    org.springframework.transaction: DEBUG
+
+file:
+  upload-dir: ${UPLOAD_DIR:uploads}
+
+app:
+  cors:
+    allowed-origins:
+        - "http://katok.pro"
+        - "https://katok.pro"
+        - "http://www.katok.pro"
+        - "https://www.katok.pro"
+        - "http://soberi.info"
+        - "https://soberi.info"
+        - "http://www.soberi.info"
+        - "https://www.soberi.info"
+        - "http://localhost:5500"
+        - "http://127.0.0.1:5500"
+        - "http://192.168.0.70:8081"
+        - "http://92.125.255.63:8081"
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+      - PATCH
+    allowed-headers:
+      - "*"
+    exposed-headers:
+      - Authorization
+      - Content-Type
+    allow-credentials: true
+    max-age: 3600
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    config-url: /v3/api-docs/swagger-config
+    url: /v3/api-docs
+    enabled: true
+    operationsSorter: method
+    tagsSorter: alpha
+    display-request-duration: true
+    try-it-out-enabled: true
+    persist-authorization: true
+    disable-swagger-default-url: true
+  packages-to-scan: info.prorabka.varamy.controller
+  paths-to-match: /**
+
+debug: true
+
+
+build.gradle=========================================================
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.2.5'  // последняя стабильная
+	id 'io.spring.dependency-management' version '1.1.5'
+}
+
+group = 'info.prorabka'
+version = '0.0.1-SNAPSHOT'
+description = 'varamy'
+
+java {
+	sourceCompatibility = '21'
+	targetCompatibility = '21'
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Spring Boot
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// Database
+	implementation 'org.postgresql:postgresql:42.7.3'
+	implementation 'org.flywaydb:flyway-core'
+
+	// JWT
+	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+	// Lombok - сначала Lombok
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+	// MapStruct - после Lombok
+	implementation 'org.mapstruct:mapstruct:1.5.5.Final'
+	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
+
+	// Для интеграции Lombok с MapStruct
+	annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+
+	//SpringDoc
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+
+	// Utils
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+	implementation 'org.apache.commons:commons-lang3:3.14.0'
+
+	// Test
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+}
+
+bootJar {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+// Явное указание совместимости с Java
+tasks.withType(JavaCompile) {
+	options.encoding = 'UTF-8'
+	options.release.set(21)
+	options.compilerArgs = [
+			'-Amapstruct.defaultComponentModel=spring',
+			'-Amapstruct.unmappedTargetPolicy=IGNORE',
+			'-parameters'
+	]
+}
+
+bootJar {
+	archiveFileName = 'varamy.jar'
+}
+
+
+gradle.properties====================================================
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+org.gradle.parallel=true
+org.gradle.daemon=true
+
+
+
+settings.gradle======================================================
+pluginManagement {
+	repositories {
+		maven { url = 'https://repo.spring.io/snapshot' }
+		gradlePluginPortal()
+	}
+}
+rootProject.name = 'varamy'
+
+
+
+
+
+
+
+

@@ -1,1 +1,7 @@
-rootProject.name = 'vara-my'
+pluginManagement {
+	repositories {
+		maven { url = 'https://repo.spring.io/snapshot' }
+		gradlePluginPortal()
+	}
+}
+rootProject.name = 'varamy'
