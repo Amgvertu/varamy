@@ -1,4 +1,4 @@
-application.yml============================================
+======================= src/main/resources/application.yml =======================
 spring:
   application:
     name: varamy
@@ -31,8 +31,8 @@ server:
 
 jwt:
   secret: ${JWT_SECRET:mySecretKeyForJWTTokenGenerationMustBeAtLeast32CharactersLong}
-  access-token-expiration: 1800000 # 30 РјРёРЅСѓС‚
-  refresh-token-expiration: 604800000 # 7 РґРЅРµР№
+  access-token-expiration: 1800000 # 30 минут
+  refresh-token-expiration: 604800000 # 7 дней
 
 logging:
   level:
@@ -77,6 +77,9 @@ app:
       - Content-Type
     allow-credentials: true
     max-age: 3600
+    cleanup:
+      archive-months: 5  # Количество месяцев хранения архивных объявлений
+      archive-cron: "0 0 3 * * ?"  # Ежедневно в 3 часа ночи
 
 springdoc:
   api-docs:
@@ -98,11 +101,24 @@ springdoc:
 
 debug: true
 
+======================= settings.gradle =======================
+pluginManagement {
+	repositories {
+		maven { url = 'https://repo.spring.io/snapshot' }
+		gradlePluginPortal()
+	}
+}
+rootProject.name = 'varamy'
 
-build.gradle=========================================================
+======================= gradle.properties =======================
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+org.gradle.parallel=true
+org.gradle.daemon=true
+
+======================= build.gradle =======================
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.2.5'  // РїРѕСЃР»РµРґРЅСЏСЏ СЃС‚Р°Р±РёР»СЊРЅР°СЏ
+	id 'org.springframework.boot' version '3.2.5'  // последняя стабильная
 	id 'io.spring.dependency-management' version '1.1.5'
 }
 
@@ -141,15 +157,15 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
 
-	// Lombok - СЃРЅР°С‡Р°Р»Р° Lombok
+	// Lombok - сначала Lombok
 	compileOnly 'org.projectlombok:lombok:1.18.30'
 	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	// MapStruct - РїРѕСЃР»Рµ Lombok
+	// MapStruct - после Lombok
 	implementation 'org.mapstruct:mapstruct:1.5.5.Final'
 	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
 
-	// Р”Р»СЏ РёРЅС‚РµРіСЂР°С†РёРё Lombok СЃ MapStruct
+	// Для интеграции Lombok с MapStruct
 	annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
 
 	//SpringDoc
@@ -172,7 +188,7 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
-// РЇРІРЅРѕРµ СѓРєР°Р·Р°РЅРёРµ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё СЃ Java
+// Явное указание совместимости с Java
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
 	options.release.set(21)
@@ -187,27 +203,12 @@ bootJar {
 	archiveFileName = 'varamy.jar'
 }
 
-
-gradle.properties====================================================
-org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
-org.gradle.parallel=true
-org.gradle.daemon=true
-
-
-
-settings.gradle======================================================
-pluginManagement {
-	repositories {
-		maven { url = 'https://repo.spring.io/snapshot' }
-		gradlePluginPortal()
-	}
-}
-rootProject.name = 'varamy'
-
-
-
-
-
-
-
+======================= gradle/wrapper/gradle-wrapper.properties =======================
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.4-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
 

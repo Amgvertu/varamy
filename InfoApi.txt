@@ -1,90 +1,423 @@
-API Endpoints
-Базовый путь: /api
+API Документация Varamy
+Базовый URL: http://92.125.255.63:8081 или http://192.168.0.119:8081 (локальный)
 
-Аутентификация
-POST /auth/register - регистрация
-
-POST /auth/login - вход
-
-POST /auth/refresh - обновление токена
-
-POST /auth/logout - выход
-
-Пользователи
-GET /user/me - текущий пользователь
-
-PUT /user/me/password - смена пароля
-
-PUT /user/me/phone - смена телефона
-
-Профили
-GET /profile/{userId} - публичный профиль
-
-GET /profile/me - свой профиль
-
-PUT /profile/me - обновление профиля
-
-POST /profile/me/avatar - загрузка аватара
-
-Объявления
-GET /ads - список объявлений
-
-POST /ads - создание
-
-GET /ads/{id} - получение
-
-PUT /ads/{id} - обновление
-
-DELETE /ads/{id} - удаление
-
-GET /ads/me - свои объявления
-
-Отклики
-POST /ads/{adId}/responses - откликнуться
-
-GET /ads/{adId}/responses - отклики на объявление
-
-PUT /responses/{responseId} - изменить статус
-
-DELETE /responses/{responseId} - удалить отклик
-
-Модерация (MODERATOR, ADMIN)
-GET /moderation/ads - объявления на модерации
-
-PUT /moderation/ads/{adId}/approve - одобрить
-
-PUT /moderation/ads/{adId}/reject - отклонить
-
-Администрирование (ADMIN)
-GET /admin/users - список пользователей
-
-PUT /admin/users/{id}/role - смена роли
-
-PUT /admin/users/{id}/status - смена статуса
-
-GET /admin/ads - все объявления
-
-Структура ответов
-Все ответы в формате JSON:
+Формат ответа – единый объект ApiResponse:
 
 json
 {
   "success": true,
   "message": "Сообщение (опционально)",
-  "data": { ... }
+  "data": { ... } // или массив, или страница
 }
-Безопасность
-JWT access token (30 минут)
+При ошибке: success: false, message – описание ошибки.
 
-Refresh token (7 дней) хранится в БД
+Аутентификация: JWT токен передаётся в заголовке Authorization: Bearer <token>.
 
-Пароли хешируются BCrypt
+1. AuthController – аутентификация
+1.1 Регистрация нового пользователя
+POST /api/auth/register
 
-Доступ к эндпоинтам на основе ролей (USER, MODERATOR, ADMIN)
+Телефон должен быть в формате +7XXXXXXXXXX (10 цифр после +7).
+По умолчанию роль USER, подроль PLAYER, статус ACTIVE. При регистрации создаётся пустой профиль.
 
-Логирование
-Логи пишутся в /var/log/varamy/application.log
+Пример запроса:
 
-Ротация логов по дням и размеру (100MB)
+bash
+curl -X POST http://192.168.0.119:8081/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phone": "+79001234567",
+    "password": "secret123",
+    "countryId": 1,
+    "regionId": 1,
+    "cityId": 57
+  }'
+Ответ (201 Created):
 
-Ошибки дублируются в error.log
+json
+{
+  "success": true,
+  "message": "Пользователь успешно зарегистрирован",
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+    "refreshToken": "550e8400-e29b-41d4-a716-446655440000",
+    "user": {
+      "id": "a59df1fc-3815-452b-858b-babaa349b918",
+      "phone": "+79001234567",
+      "role": "USER",
+      "subrole": "PLAYER",
+      "status": "ACTIVE",
+      "registeredAt": "2026-03-31T10:00:00",
+      "lastLoginAt": null,
+      "profile": {
+        "id": "a59df1fc-3815-452b-858b-babaa349b918",
+        "firstName": null,
+        "lastName": null,
+        "birthDate": null,
+        "position": null,
+        "level": null,
+        "number": null,
+        "team": null,
+        "email": null,
+        "avatarUrl": null,
+        "homeCountry": { "id": 1, "name": "Россия", "code": "RU", "phoneCode": "7" },
+        "homeRegion": { "id": 1, "name": "Москва", "country": {...}, "autoCode": "77" },
+        "homeCity": { "id": 57, "name": "Москва", "region": {...} }
+      }
+    }
+  }
+}
+1.2 Вход (логин)
+POST /api/auth/login
+
+Пример запроса:
+
+bash
+curl -X POST http://192.168.0.119:8081/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+79001234567", "password": "secret123"}'
+Ответ (200 OK): аналогичен регистрации, но lastLoginAt заполнен.
+
+1.3 Обновление access токена
+POST /api/auth/refresh
+
+Пример запроса:
+
+bash
+curl -X POST http://192.168.0.119:8081/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "550e8400-e29b-41d4-a716-446655440000"}'
+Ответ (200 OK): новый accessToken и новый refreshToken.
+
+1.4 Выход (logout)
+POST /api/auth/logout
+
+Пример запроса:
+
+bash
+curl -X POST http://192.168.0.119:8081/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "550e8400-e29b-41d4-a716-446655440000"}'
+Ответ (200 OK):
+
+json
+{
+  "success": true,
+  "message": "Выход выполнен успешно",
+  "data": null
+}
+2. AdController – объявления
+2.1 Получение объявлений по городу (только ACTIVE)
+GET /api/ads?cityId={cityId}&type={type}&subType={subType}&status={status}&level={level}
+
+По умолчанию status=ACTIVE, возвращаются только активные. Статус можно явно указать, но архивные никогда не попадают (публичный метод).
+
+Пример запроса:
+
+bash
+curl -X GET "http://192.168.0.119:8081/api/ads?cityId=57&type=1&subType=1&level=A&level=B&page=0&size=10"
+Ответ (200 OK):
+
+json
+{
+  "success": true,
+  "data": {
+    "content": [
+      {
+        "id": "ae286c07-5abf-4f05-be48-7835b8629909",
+        "authorId": "a59df1fc-3815-452b-858b-babaa349b918",
+        "author": { ... },
+        "type": 1,
+        "status": "ACTIVE",
+        "createdAt": "2026-03-31T10:00:00",
+        "startTime": "2026-04-01T19:00:00",
+        "level": ["A", "B"],
+        "city": { "id": 57, "name": "Москва", "region": {...} },
+        "team": "Динамо",
+        "contactName": "Иван Иванов",
+        "contactPhone": "+79001234567",
+        "rinkIds": [36, 42],
+        "details": null,
+        "responses": [],
+        "subType": 1,
+        "endTime": "2026-04-01T19:00:00",
+        "showTeam": true,
+        "goaliesCount": 2,
+        "defendersCount": null,
+        "forwardsCount": null,
+        "acceptedGoaliesCount": 0,
+        "acceptedDefendersCount": 0,
+        "acceptedForwardsCount": 0
+      }
+    ],
+    "pageable": { ... },
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+2.2 Получение всех активных объявлений (без привязки к городу)
+GET /api/ads/all?type=...&subType=...&level=...
+
+2.3 Создание объявления
+POST /api/ads
+
+Требуется авторизация. Тело запроса – AdRequest.
+Для типа 1.1 (вратарь) обязательно указать goaliesCount (1 или 2).
+Для типа 1.2 (полевые) – defendersCount и forwardsCount.
+subType обязателен.
+
+Пример запроса (вратарь):
+
+bash
+curl -X POST http://192.168.0.119:8081/api/ads \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": 1,
+    "subType": 1,
+    "startTime": "2026-04-01T19:00:00",
+    "goaliesCount": 2,
+    "level": ["A", "B"],
+    "cityId": 57,
+    "team": "Спартак",
+    "rinkIds": [36]
+  }'
+Ответ (200 OK): созданное объявление (как в п.2.1).
+
+2.4 Получение объявления по ID
+GET /api/ads/{id}
+
+Доступно всем, возвращает даже архивное (если нужно скрыть – доработать).
+
+2.5 Редактирование объявления
+PUT /api/ads/{id}
+
+Авторизация (автор или админ). При редактировании админом статус сбрасывается на MODERATION.
+
+2.6 Удаление объявления
+DELETE /api/ads/{id}
+
+Автор или админ.
+
+2.7 Мои объявления (включая архивные)
+GET /api/ads/me
+
+Авторизация. Возвращает все объявления текущего пользователя с пагинацией.
+
+3. ResponseController – отклики
+3.1 Создать отклик
+POST /api/ads/{adId}/responses
+
+Авторизация. Тело – ResponseRequest (необязательное message и responseRole).
+responseRole обязателен для объявлений типа 1 (вратарь/полевой), для остальных игнорируется.
+
+Пример запроса:
+
+bash
+curl -X POST http://192.168.0.119:8081/api/ads/ae286c07-5abf-4f05-be48-7835b8629909/responses \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Хочу играть!", "responseRole": "GOALIE"}'
+Ответ (200 OK):
+
+json
+{
+  "success": true,
+  "message": "Отклик отправлен",
+  "data": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "adId": "ae286c07-5abf-4f05-be48-7835b8629909",
+    "userId": "a59df1fc-3815-452b-858b-babaa349b918",
+    "user": { ... },
+    "status": "PENDING",
+    "message": "Хочу играть!",
+    "createdAt": "2026-03-31T12:00:00",
+    "responseRole": "GOALIE"
+  }
+}
+3.2 Получить отклики на объявление
+GET /api/ads/{adId}/responses
+
+Авторизация. Автор и админ видят все отклики, остальные – только принятые (APPROVED).
+
+3.3 Мои отклики (объявления, на которые откликнулся пользователь)
+GET /api/responses/my
+
+Авторизация, пагинация. Возвращает Page<MyResponseAdResponse> – каждый элемент содержит полное объявление (ad) и отклик пользователя (myResponse).
+
+Пример ответа:
+
+json
+{
+  "success": true,
+  "data": {
+    "content": [
+      {
+        "ad": { ... полные данные объявления ... },
+        "myResponse": { ... отклик текущего пользователя ... }
+      }
+    ],
+    "totalElements": 1
+  }
+}
+3.4 Изменить статус отклика
+PUT /api/responses/{responseId}?status={APPROVED|PENDING|REJECTED}
+
+Авторизация (только автор объявления или админ).
+
+APPROVED – принять (проверяются лимиты).
+
+PENDING – отменить принятие (вернуть в ожидание).
+
+REJECTED – отклонить (нельзя отклонить принятый).
+
+3.5 Удалить отклик
+DELETE /api/responses/{responseId}
+
+Авторизация (автор отклика или админ). Если отклик был принят, его удаление уменьшает счётчики и может вернуть объявление в ACTIVE.
+
+4. ProfileController – профили
+4.1 Получить публичный профиль пользователя
+GET /api/profile/{userId}
+
+4.2 Получить свой профиль (для редактирования)
+GET /api/profile/me
+
+Требуется авторизация. Возвращает тот же ProfileResponse, что и публичный метод.
+
+4.3 Обновить свой профиль
+PUT /api/profile/me
+
+Пример запроса:
+
+bash
+curl -X PUT http://192.168.0.119:8081/api/profile/me \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "firstName": "Алексей",
+    "lastName": "Смирнов",
+    "birthDate": "1990-05-15",
+    "position": "Вратарь",
+    "level": "A",
+    "number": 1,
+    "team": "Динамо",
+    "email": "alex@example.com",
+    "homeCountryId": 1,
+    "homeRegionId": 1,
+    "homeCityId": 57
+  }'
+4.4 Загрузить аватар
+POST /api/profile/me/avatar (multipart/form-data)
+
+Поле file – изображение.
+
+Ответ (200 OK):
+
+json
+{
+  "success": true,
+  "message": "Аватар загружен",
+  "data": "http://localhost:8081/uploads/avatars/abc123.jpg"
+}
+5. UserController – управление пользователем
+5.1 Текущий пользователь
+GET /api/user/me
+
+5.2 Смена пароля
+PUT /api/user/me/password
+
+Тело: {"oldPassword": "...", "newPassword": "..."}
+
+5.3 Смена телефона
+PUT /api/user/me/phone?newPhone=+79009998877&password=secret123
+
+Требуется текущий пароль.
+
+5.4 Админские методы
+Все ниже требуют роль ADMIN.
+
+GET /api/user?phone=...&role=...&status=... – список пользователей с фильтрацией.
+
+GET /api/user/{id} – получить пользователя по ID.
+
+PUT /api/user/{id}?phone=...&role=...&status=...&password=... – обновление.
+
+DELETE /api/user/{id}?hardDelete=false – блокировка (soft delete) или полное удаление.
+
+6. LocationController – локации
+6.1 Страны
+GET /api/locations/countries – все страны (полная информация).
+
+GET /api/locations/countries/simple – упрощённый список {id, name, code}.
+
+6.2 Регионы
+GET /api/locations/regions/country/{countryId} – полные данные регионов.
+
+GET /api/locations/regions/simple/country/{countryId} – упрощённые.
+
+6.3 Города
+GET /api/locations/cities/region/{regionId} – полные.
+
+GET /api/locations/cities/simple/region/{regionId} – упрощённые.
+
+GET /api/locations/cities/country/{countryId} – все города страны (полные).
+
+GET /api/locations/cities/simple/country/{countryId} – упрощённые.
+
+7. RinkController – ледовые дворцы
+GET /api/rinks/city/{cityId} – все ЛДС города.
+
+GET /api/rinks/{rinkId} – по ID.
+
+GET /api/rinks/search?query=Сибирь&cityId=129 – поиск по названию/адресу.
+
+8. ModerationController – модерация (роли MODERATOR, ADMIN)
+GET /api/moderation/ads – объявления со статусом MODERATION.
+
+PUT /api/moderation/ads/{adId}/approve – одобрить (статус → ACTIVE).
+
+PUT /api/moderation/ads/{adId}/reject – отклонить (статус → ARCHIVED).
+
+9. AdminController – расширенные админские функции
+Все методы требуют роль ADMIN.
+
+9.1 Управление пользователями (альтернативные эндпоинты)
+GET /api/admin/users – аналогично /api/user.
+
+PUT /api/admin/users/{id}/role?role=MODERATOR
+
+PUT /api/admin/users/{id}/status?status=BLOCKED
+
+9.2 Просмотр всех объявлений (включая архивные)
+GET /api/admin/ads?cityId=...&type=...&status=...&authorId=... – фильтрация.
+
+9.3 Статистика
+GET /api/admin/ads/statistics
+
+json
+{
+  "success": true,
+  "data": {
+    "totalActive": 42,
+    "totalModeration": 3,
+    "totalFilled": 15,
+    "totalArchived": 120
+  }
+}
+9.4 Ручная архивация / очистка
+POST /api/admin/ads/archive – принудительно запустить архивацию просроченных.
+
+POST /api/admin/ads/cleanup – удалить архивные объявления старше 5 месяцев.
+
+10. TestController – проверка работы
+GET /api/test/ping – возвращает { "success": true, "data": "pong" }. Не требует авторизации.
+
+Общие коды ошибок
+HTTP статус	Описание
+400 Bad Request	Неверные параметры запроса, валидация не пройдена
+401 Unauthorized	Отсутствует или невалидный токен
+403 Forbidden	Недостаточно прав (например, не админ)
+404 Not Found	Ресурс не найден
+500 Internal Server Error	Ошибка на сервере (см. логи)
+Все ошибки возвращают ApiResponse с success: false и полем message.
