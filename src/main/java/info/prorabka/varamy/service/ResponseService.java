@@ -245,19 +245,13 @@ public class ResponseService {
 
     @Transactional(readOnly = true)
     public Page<MyResponseAdResponse> getMyResponses(UUID userId, Pageable pageable) {
+        // Используем метод репозитория с JOIN FETCH
         Page<Response> responses = responseRepository.findResponsesByUserIdWithAds(userId, pageable);
 
         return responses.map(response -> {
             MyResponseAdResponse dto = new MyResponseAdResponse();
-
-            // Маппим объявление
-            AdResponse adResponse = adMapper.toResponse(response.getAd());
-            dto.setAd(adResponse);
-
-            // Маппим отклик пользователя
-            ResponseResponse responseResponse = responseMapper.toResponse(response);
-            dto.setMyResponse(responseResponse);
-
+            dto.setAd(adMapper.toResponse(response.getAd()));
+            dto.setMyResponse(responseMapper.toResponse(response));
             return dto;
         });
     }

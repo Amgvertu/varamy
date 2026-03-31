@@ -76,6 +76,9 @@ app:
       - Content-Type
     allow-credentials: true
     max-age: 3600
+    cleanup:
+      archive-months: 5  # Количество месяцев хранения архивных объявлений
+      archive-cron: "0 0 3 * * ?"  # Ежедневно в 3 часа ночи
 
 springdoc:
   api-docs:

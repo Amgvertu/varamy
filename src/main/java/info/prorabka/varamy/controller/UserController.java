@@ -7,6 +7,7 @@ import info.prorabka.varamy.entity.User;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,10 +47,13 @@ public class UserController {
     }
 
     @PutMapping("/me/phone")
-    @Operation(summary = "Смена телефона")
+    @Operation(summary = "Смена телефона",
+            description = "Для смены телефона требуется подтверждение текущим паролем.")
     public ResponseEntity<ApiResponse<Void>> changePhone(
             @AuthenticationPrincipal SecurityUser currentUser,
+            @Parameter(description = "Новый номер телефона в формате +7XXXXXXXXXX", example = "+79001234567")
             @RequestParam(name = "newPhone") String newPhone,
+            @Parameter(description = "Текущий пароль", example = "password")
             @RequestParam(name = "password") String password) {
         userService.changePhone(currentUser.getId(), newPhone, password);
         return ResponseEntity.ok(ApiResponse.success("Телефон успешно изменён", null));
@@ -59,8 +63,11 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Получение списка пользователей (только для админа)")
     public ResponseEntity<ApiResponse<Page<UserResponse>>> getUsers(
+            @Parameter(description = "Часть номера телефона для поиска", example = "7900")
             @RequestParam(name = "phone", required = false) String phone,
+            @Parameter(description = "Роль пользователя", example = "USER")
             @RequestParam(name = "role", required = false) User.UserRole role,
+            @Parameter(description = "Статус пользователя", example = "ACTIVE")
             @RequestParam(name = "status", required = false) User.UserStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<UserResponse> users = userService.getUsers(phone, role, status, pageable);
@@ -70,7 +77,9 @@ public class UserController {
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Получение пользователя по ID (только для админа)")
-    public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<UserResponse>> getUserById(
+            @Parameter(description = "UUID пользователя", example = "7e8a0d80-4778-4e88-a5e2-596c81b0f932")
+            @PathVariable UUID id) {
         UserResponse response = userService.getUserResponseById(id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -79,10 +88,15 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Обновление пользователя (только для админа)")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
+            @Parameter(description = "UUID пользователя", example = "7e8a0d80-4778-4e88-a5e2-596c81b0f932")
             @PathVariable UUID id,
+            @Parameter(description = "Новый номер телефона", example = "+79001234567")
             @RequestParam(name = "phone", required = false) String phone,
+            @Parameter(description = "Новая роль", example = "MODERATOR")
             @RequestParam(name = "role", required = false) User.UserRole role,
+            @Parameter(description = "Новый статус", example = "BLOCKED")
             @RequestParam(name = "status", required = false) User.UserStatus status,
+            @Parameter(description = "Новый пароль (будет захеширован)")
             @RequestParam(name = "password", required = false) String password) {
         UserResponse response = userService.updateUser(id, phone, role, status, password);
         return ResponseEntity.ok(ApiResponse.success("Пользователь обновлён", response));
@@ -90,9 +104,12 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Удаление пользователя (только для админа)")
+    @Operation(summary = "Удаление пользователя (только для админа)",
+            description = "Если hardDelete=true — полное удаление из БД, иначе блокировка.")
     public ResponseEntity<ApiResponse<Void>> deleteUser(
+            @Parameter(description = "UUID пользователя", example = "7e8a0d80-4778-4e88-a5e2-596c81b0f932")
             @PathVariable UUID id,
+            @Parameter(description = "Полное удаление (true) или блокировка (false)", example = "false")
             @RequestParam(name = "hardDelete", defaultValue = "false") boolean hardDelete) {
         userService.deleteUser(id, hardDelete);
         return ResponseEntity.ok(ApiResponse.success("Пользователь удалён", null));

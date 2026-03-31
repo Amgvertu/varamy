@@ -1,0 +1,4193 @@
+======================= info/prorabka/varamy/config/JwtConfig.java =======================
+package info.prorabka.varamy.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "jwt")
+public class JwtConfig {
+    private String secret;
+    private long accessTokenExpiration = 1800000; // 30 минут
+    private long refreshTokenExpiration = 604800000; // 7 дней
+    private String issuer = "varamy";
+}
+
+======================= info/prorabka/varamy/config/OpenApiConfig.java =======================
+package info.prorabka.varamy.config;
+
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.Contact;
+import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
+
+
+@Configuration
+public class OpenApiConfig {
+
+    @Value("${server.port:8081}")
+    private String serverPort;
+
+    @Bean
+    public OpenAPI customOpenAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("katok.pro")
+                        .description("API для хоккейного приложения Vara. Позволяет управлять пользователями, профилями игроков, объявлениями и откликами.")
+                        .version("1.0.0")
+                        .contact(new Contact()
+                                .name("katok.pro")
+                                .url("http://varatut.ru"))
+                        .license(new License()
+                                .name("Apache 2.0")
+                                .url("http://springdoc.org")))
+                .servers(List.of(
+                        new Server().url("http://92.125.255.63:" + serverPort).description("БД"),
+                        new Server().url("http://192.168.0.119:" + serverPort).description("Локальный сервер")
+                ))
+                .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
+                .components(new Components()
+                        .addSecuritySchemes("bearerAuth",
+                                new SecurityScheme()
+                                        .name("bearerAuth")
+                                        .type(SecurityScheme.Type.HTTP)
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")
+                                        .description("Введите JWT токен в формате: Bearer {token}")));
+    }
+
+    public void setServerPort(String serverPort) {
+        this.serverPort = serverPort;
+    }
+}
+
+======================= info/prorabka/varamy/config/SecurityConfig.java =======================
+package info.prorabka.varamy.config;
+
+import info.prorabka.varamy.security.JwtAuthenticationFilter;
+import info.prorabka.varamy.security.UserDetailsServiceImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.io.IOException;
+import java.util.Arrays;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final UserDetailsServiceImpl userDetailsService;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ObjectMapper objectMapper;
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public DaoAuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.asList(
+                "http://katok.pro",
+                "https://katok.pro",
+                "http://www.katok.pro",
+                "https://www.katok.pro",
+                "http://soberi.info",
+                "https://soberi.info",
+                "http://www.soberi.info",
+                "https://www.soberi.info",
+                "http://varatut.ru",
+                "https://varatut.ru",
+                "http://www.varatut.ru",
+                "https://www.varatut.ru",
+                "http://localhost:5500",
+                "http://127.0.0.1:5500",
+                "http://192.168.0.70:8081",
+                "http://92.125.255.63:8081"
+        ));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))  // ВКЛЮЧАЕМ CORS!
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/error",
+                                "/api/locations/**",
+                                "/api/ads/**",
+                                "/api/ads/all/**",
+                                "/api/rinks/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/webjars/**",
+                                "/swagger-resources/**",
+                                "/configuration/**"
+                        ).permitAll()
+                        .requestMatchers("/api/profile/me").authenticated()
+                        .requestMatchers("/api/profile/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/moderation/**").hasAnyRole("MODERATOR", "ADMIN")
+                        .anyRequest().authenticated()
+                )
+                .authenticationProvider(authenticationProvider())
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("application/json");
+                            response.setCharacterEncoding("UTF-8");
+                            response.getWriter().write("{\"success\":false,\"message\":\"Неавторизован\"}");
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            response.setContentType("application/json");
+                            response.setCharacterEncoding("UTF-8");
+                            response.getWriter().write("{\"success\":false,\"message\":\"Доступ запрещен\"}");
+                        })
+                );
+
+        return http.build();
+    }
+
+    private void sendErrorResponse(HttpServletResponse response, int status, String message) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        ApiResponse<Void> apiResponse = ApiResponse.error(message);
+        response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+    }
+}
+
+======================= info/prorabka/varamy/config/WebConfig.java =======================
+package info.prorabka.varamy.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/swagger-ui/**")
+                .addResourceLocations("classpath:/META-INF/resources/webjars/swagger-ui/5.17.14/");
+        registry.addResourceHandler("/webjars/**")
+                .addResourceLocations("classpath:/META-INF/resources/webjars/");
+    }
+}
+
+======================= info/prorabka/varamy/controller/AdController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.request.AdRequest;
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.security.SecurityUser;
+import info.prorabka.varamy.service.AdService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/ads")
+@RequiredArgsConstructor
+@Tag(name = "Объявления", description = "Управление объявлениями")
+public class AdController {
+
+    private final AdService adService;
+
+    @GetMapping
+    @Operation(summary = "Получение списка объявлений по городу (только активные, исключая архивные)")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getAds(
+            @Parameter(description = "ID города", required = true, example = "57")
+            @RequestParam(name = "cityId") Long cityId,
+            @Parameter(description = "Тип объявления (1-5)", example = "1")
+            @RequestParam(name = "type", required = false) Integer type,
+            @Parameter(description = "Подтип объявления", example = "1")
+            @RequestParam(name = "subType", required = false) Integer subType,
+            @Parameter(description = "Статус объявления (по умолчанию ACTIVE)", example = "ACTIVE")
+            @RequestParam(name = "status", required = false) Ad.AdStatus status,
+            @Parameter(description = "Уровни игроков", example = "[\"A\",\"B\"]")
+            @RequestParam(name = "level", required = false) List<String> level,
+            @PageableDefault(size = 20) Pageable pageable) {
+
+        if (status == null) {
+            status = Ad.AdStatus.ACTIVE;
+        }
+
+        Page<AdResponse> ads = adService.getAds(cityId, type, subType, status, level, null, pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+
+    @GetMapping("/all")
+    @Operation(summary = "Получение всех активных объявлений (исключая архивные)")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getAllActiveAds(
+            @Parameter(description = "Тип объявления (1-5)", example = "1")
+            @RequestParam(name = "type", required = false) Integer type,
+            @Parameter(description = "Подтип объявления", example = "1")
+            @RequestParam(name = "subType", required = false) Integer subType,
+            @Parameter(description = "Уровни игроков", example = "[\"A\",\"B\"]")
+            @RequestParam(name = "level", required = false) List<String> level,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<AdResponse> ads = adService.getAllActiveAds(type, subType, level, pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+
+    @PostMapping
+    @Operation(summary = "Создание нового объявления")
+    public ResponseEntity<ApiResponse<AdResponse>> createAd(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody AdRequest request) {
+        AdResponse response = adService.createAd(currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Объявление создано", response));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Получение объявления по ID")
+    public ResponseEntity<ApiResponse<AdResponse>> getAdById(@PathVariable UUID id) {
+        AdResponse response = adService.getAdById(id);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Редактирование объявления")
+    public ResponseEntity<ApiResponse<AdResponse>> updateAd(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID id,
+            @Valid @RequestBody AdRequest request) {
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        AdResponse response = adService.updateAd(id, currentUser.getId(), request, isAdmin);
+        return ResponseEntity.ok(ApiResponse.success("Объявление обновлено", response));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Удаление объявления")
+    public ResponseEntity<ApiResponse<Void>> deleteAd(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID id) {
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        adService.deleteAd(id, currentUser.getId(), isAdmin);
+        return ResponseEntity.ok(ApiResponse.success("Объявление удалено", null));
+    }
+
+    @GetMapping("/me")
+    @Operation(summary = "Получение списка своих объявлений (включая архивные)")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getMyAds(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<AdResponse> ads = adService.getMyAds(currentUser.getId(), pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+}
+
+======================= info/prorabka/varamy/controller/AdminController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.UserResponse;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.service.AdService;
+import info.prorabka.varamy.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/admin")
+@RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "Администрирование", description = "Административные функции")
+public class AdminController {
+
+    private final UserService userService;
+    private final AdService adService;
+
+    @GetMapping("/users")
+    @Operation(summary = "Получение списка пользователей")
+    public ResponseEntity<ApiResponse<Page<UserResponse>>> getUsers(
+            @RequestParam(name = "phone", required = false) String phone,
+            @RequestParam(name = "role", required = false) User.UserRole role,
+            @RequestParam(name = "status", required = false) User.UserStatus status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<UserResponse> users = userService.getUsers(phone, role, status, pageable);
+        return ResponseEntity.ok(ApiResponse.success(users));
+    }
+
+    @PutMapping("/users/{id}/role")
+    @Operation(summary = "Смена роли пользователя")
+    public ResponseEntity<ApiResponse<UserResponse>> changeUserRole(
+            @PathVariable UUID id,
+            @RequestParam(name = "role") User.UserRole role) {
+        UserResponse response = userService.updateUser(id, null, role, null, null);
+        return ResponseEntity.ok(ApiResponse.success("Роль пользователя изменена", response));
+    }
+
+    @PutMapping("/users/{id}/status")
+    @Operation(summary = "Изменение статуса пользователя")
+    public ResponseEntity<ApiResponse<UserResponse>> changeUserStatus(
+            @PathVariable UUID id,
+            @RequestParam(name = "status") User.UserStatus status) {
+        UserResponse response = userService.updateUser(id, null, null, status, null);
+        return ResponseEntity.ok(ApiResponse.success("Статус пользователя изменён", response));
+    }
+
+    @GetMapping("/ads")
+    @Operation(summary = "Получение всех объявлений с фильтрацией (включая архивные)")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getAllAdsAdmin(
+            @Parameter(description = "ID города", example = "57")
+            @RequestParam(required = false) Long cityId,
+            @Parameter(description = "Тип объявления (1-5)", example = "1")
+            @RequestParam(required = false) Integer type,
+            @Parameter(description = "Подтип объявления", example = "1")
+            @RequestParam(required = false) Integer subType,
+            @Parameter(description = "Статус объявления", example = "ACTIVE")
+            @RequestParam(required = false) Ad.AdStatus status,
+            @Parameter(description = "Уровни игроков", example = "[\"A\",\"B\"]")
+            @RequestParam(required = false) List<String> level,
+            @Parameter(description = "ID автора", example = "7e8a0d80-4778-4e88-a5e2-596c81b0f932")
+            @RequestParam(required = false) UUID authorId,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<AdResponse> ads = adService.getAdsAdmin(cityId, type, subType, status, level, authorId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+
+    @GetMapping("/ads/statistics")
+    @Operation(summary = "Получение статистики по объявлениям")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<AdService.AdStatistics>> getAdStatistics() {
+        AdService.AdStatistics stats = adService.getAdStatistics();
+        return ResponseEntity.ok(ApiResponse.success(stats));
+    }
+
+    @PostMapping("/ads/cleanup")
+    @Operation(summary = "Принудительный запуск очистки старых архивных объявлений")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<String>> runCleanup() {
+        adService.cleanupOldArchivedAds();
+        return ResponseEntity.ok(ApiResponse.success("Очистка старых архивных объявлений запущена"));
+    }
+
+    @PostMapping("/ads/archive")
+    @Operation(summary = "Принудительный запуск архивации просроченных объявлений")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<String>> runArchive() {
+        adService.archiveExpiredAds();
+        return ResponseEntity.ok(ApiResponse.success("Архивация просроченных объявлений запущена"));
+    }
+}
+
+======================= info/prorabka/varamy/controller/AuthController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.request.LoginRequest;
+import info.prorabka.varamy.dto.request.RefreshTokenRequest;
+import info.prorabka.varamy.dto.request.RegisterRequest;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.AuthResponse;
+import info.prorabka.varamy.service.AuthService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+@Tag(name = "Аутентификация", description = "Регистрация, вход, обновление токенов")
+public class AuthController {
+
+    private final AuthService authService;
+
+    @PostMapping("/register")
+    @Operation(summary = "Регистрация нового пользователя")
+    public ResponseEntity<ApiResponse<AuthResponse>> register(
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest httpRequest) {
+        AuthResponse response = authService.register(request, httpRequest);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Пользователь успешно зарегистрирован", response));
+    }
+
+    @PostMapping("/login")
+    @Operation(summary = "Вход в систему")
+    public ResponseEntity<ApiResponse<AuthResponse>> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest) {
+        AuthResponse response = authService.login(request, httpRequest);
+        return ResponseEntity.ok(ApiResponse.success("Вход выполнен успешно", response));
+    }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "Обновление access токена")
+    public ResponseEntity<ApiResponse<AuthResponse>> refresh(
+            @Valid @RequestBody RefreshTokenRequest request,
+            HttpServletRequest httpRequest) {
+        AuthResponse response = authService.refresh(request.getRefreshToken(), httpRequest);
+        return ResponseEntity.ok(ApiResponse.success("Токен обновлён", response));
+    }
+
+    @PostMapping("/logout")
+    @Operation(summary = "Выход из системы")
+    public ResponseEntity<ApiResponse<Void>> logout(@RequestBody RefreshTokenRequest request) {
+        authService.logout(request.getRefreshToken());
+        return ResponseEntity.ok(ApiResponse.success("Выход выполнен успешно", null));
+    }
+}
+
+======================= info/prorabka/varamy/controller/LocationController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.response.*;
+import info.prorabka.varamy.service.CountryService;
+import info.prorabka.varamy.service.RegionService;
+import info.prorabka.varamy.service.CityService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/locations")
+@RequiredArgsConstructor
+@Tag(name = "Локации", description = "Справочники стран, регионов и городов")
+public class LocationController {
+
+    private final CountryService countryService;
+    private final RegionService regionService;
+    private final CityService cityService;
+
+    @GetMapping("/countries")
+    @Operation(summary = "Получить список всех стран")
+    public ResponseEntity<ApiResponse<List<CountryResponse>>> getAllCountries() {
+        List<CountryResponse> countries = countryService.getAllCountries();
+        return ResponseEntity.ok(ApiResponse.success(countries));
+    }
+
+    @GetMapping("/regions/country/{countryId}")
+    @Operation(summary = "Получить список регионов по ID страны")
+    public ResponseEntity<ApiResponse<List<RegionResponse>>> getRegionsByCountry(
+            @Parameter(description = "ID страны", example = "1", required = true)
+            @PathVariable Long countryId) {
+        List<RegionResponse> regions = regionService.getRegionsByCountry(countryId);
+        return ResponseEntity.ok(ApiResponse.success(regions));
+    }
+
+    @GetMapping("/cities/region/{regionId}")
+    @Operation(summary = "Получить список городов по ID региона")
+    public ResponseEntity<ApiResponse<List<CityResponse>>> getCitiesByRegion(
+            @Parameter(description = "ID региона", example = "1", required = true)
+            @PathVariable Long regionId) {
+        List<CityResponse> cities = cityService.getCitiesByRegion(regionId);
+        return ResponseEntity.ok(ApiResponse.success(cities));
+    }
+
+    @GetMapping("/cities/simple/region/{regionId}")
+    @Operation(summary = "Получить список городов по ID региона (упрощённый формат)")
+    public ResponseEntity<ApiResponse<List<CitySimpleResponse>>> getSimpleCitiesByRegion(
+            @Parameter(description = "ID региона", example = "26", required = true)
+            @PathVariable Long regionId) {
+        List<CitySimpleResponse> cities = cityService.getSimpleCitiesByRegion(regionId);
+        return ResponseEntity.ok(ApiResponse.success(cities));
+    }
+
+    @GetMapping("/countries/simple")
+    @Operation(summary = "Получить список всех стран (упрощённый формат)")
+    public ResponseEntity<ApiResponse<List<CountrySimpleResponse>>> getSimpleCountries() {
+        List<CountrySimpleResponse> countries = countryService.getSimpleCountries();
+        return ResponseEntity.ok(ApiResponse.success(countries));
+    }
+
+    @GetMapping("/regions/simple/country/{countryId}")
+    @Operation(summary = "Получить список регионов по ID страны (упрощённый формат)")
+    public ResponseEntity<ApiResponse<List<RegionSimpleResponse>>> getSimpleRegionsByCountry(
+            @Parameter(description = "ID страны", example = "1", required = true)
+            @PathVariable Long countryId) {
+        List<RegionSimpleResponse> regions = regionService.getSimpleRegionsByCountry(countryId);
+        return ResponseEntity.ok(ApiResponse.success(regions));
+    }
+
+    @GetMapping("/cities/country/{countryId}")
+    @Operation(summary = "Получить список всех городов страны (полная информация)")
+    public ResponseEntity<ApiResponse<List<CityResponse>>> getCitiesByCountry(
+            @Parameter(description = "ID страны", example = "1", required = true)
+            @PathVariable Long countryId) {
+        List<CityResponse> cities = cityService.getCitiesByCountry(countryId);
+        return ResponseEntity.ok(ApiResponse.success(cities));
+    }
+
+    @GetMapping("/cities/simple/country/{countryId}")
+    @Operation(summary = "Получить список всех городов страны (упрощённый формат)")
+    public ResponseEntity<ApiResponse<List<CitySimpleResponse>>> getSimpleCitiesByCountry(
+            @Parameter(description = "ID страны", example = "1", required = true)
+            @PathVariable Long countryId) {
+        List<CitySimpleResponse> cities = cityService.getSimpleCitiesByCountry(countryId);
+        return ResponseEntity.ok(ApiResponse.success(cities));
+    }
+}
+
+======================= info/prorabka/varamy/controller/ModerationController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.service.AdService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/moderation")
+@RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+@Tag(name = "Модерация", description = "Модерация объявлений")
+public class ModerationController {
+
+    private final AdService adService;
+
+    @GetMapping("/ads")
+    @Operation(summary = "Получение списка объявлений на модерации")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getAdsForModeration(
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<AdResponse> ads = adService.getAdsForModeration(pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+
+    @PutMapping("/ads/{adId}/approve")
+    @Operation(summary = "Одобрить объявление")
+    public ResponseEntity<ApiResponse<AdResponse>> approveAd(@PathVariable UUID adId) {
+        AdResponse response = adService.moderateAd(adId, true);
+        return ResponseEntity.ok(ApiResponse.success("Объявление одобрено", response));
+    }
+
+    @PutMapping("/ads/{adId}/reject")
+    @Operation(summary = "Отклонить объявление")
+    public ResponseEntity<ApiResponse<AdResponse>> rejectAd(@PathVariable UUID adId) {
+        AdResponse response = adService.moderateAd(adId, false);
+        return ResponseEntity.ok(ApiResponse.success("Объявление отклонено", response));
+    }
+}
+
+======================= info/prorabka/varamy/controller/ProfileController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.request.ProfileRequest;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.ProfileResponse;
+import info.prorabka.varamy.security.SecurityUser;
+import info.prorabka.varamy.service.ProfileService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/profile")
+@RequiredArgsConstructor
+@Tag(name = "Профили", description = "Управление профилями пользователей")
+public class ProfileController {
+
+    private final ProfileService profileService;
+
+    @GetMapping("/{userId}")
+    @Operation(summary = "Получение публичного профиля пользователя")
+    public ResponseEntity<ApiResponse<ProfileResponse>> getProfile(@PathVariable UUID userId) {
+        ProfileResponse response = profileService.getProfileById(userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Получение своего профиля для редактирования")
+    public ResponseEntity<ApiResponse<ProfileResponse>> getMyProfile(
+            @AuthenticationPrincipal SecurityUser currentUser) {
+        ProfileResponse response = profileService.getProfileById(currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PutMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Обновление своего профиля")
+    public ResponseEntity<ApiResponse<ProfileResponse>> updateProfile(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody ProfileRequest request) {
+        ProfileResponse response = profileService.updateProfile(currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Профиль обновлён", response));
+    }
+
+    @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Загрузка аватара")
+    public ResponseEntity<ApiResponse<String>> uploadAvatar(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @RequestParam(name = "file") MultipartFile file) {
+        String avatarUrl = profileService.uploadAvatar(currentUser.getId(), file);
+        return ResponseEntity.ok(ApiResponse.success("Аватар загружен", avatarUrl));
+    }
+}
+
+======================= info/prorabka/varamy/controller/ResponseController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.request.ResponseRequest;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.MyResponseAdResponse;
+import info.prorabka.varamy.dto.response.ResponseResponse;
+import info.prorabka.varamy.entity.Response;
+import info.prorabka.varamy.security.SecurityUser;
+import info.prorabka.varamy.service.ResponseService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api")
+@RequiredArgsConstructor
+@Tag(name = "Отклики", description = "Управление откликами на объявления")
+public class ResponseController {
+
+    private final ResponseService responseService;
+
+    @PostMapping("/ads/{adId}/responses")
+    @Operation(summary = "Откликнуться на объявление")
+    public ResponseEntity<ApiResponse<ResponseResponse>> createResponse(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID adId,
+            @RequestBody(required = false) ResponseRequest request) {
+        ResponseResponse response = responseService.createResponse(adId, currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Отклик отправлен", response));
+    }
+
+    @GetMapping("/ads/{adId}/responses")
+    @Operation(summary = "Получение откликов на объявление")
+    public ResponseEntity<ApiResponse<List<ResponseResponse>>> getResponsesForAd(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID adId) {
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        List<ResponseResponse> responses = responseService.getResponsesForAd(
+                adId, currentUser.getId(), isAdmin);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+    @GetMapping("/responses/my")
+    @Operation(summary = "Получение всех объявлений, на которые текущий пользователь откликнулся")
+    public ResponseEntity<ApiResponse<Page<MyResponseAdResponse>>> getMyResponses(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<MyResponseAdResponse> responses = responseService.getMyResponses(currentUser.getId(), pageable);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+    @PutMapping("/responses/{responseId}")
+    @Operation(summary = "Изменение статуса отклика")
+    public ResponseEntity<ApiResponse<ResponseResponse>> updateResponseStatus(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID responseId,
+            @RequestParam Response.ResponseStatus status) {
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        ResponseResponse response = responseService.updateResponseStatus(
+                responseId, currentUser.getId(), status, isAdmin);
+        return ResponseEntity.ok(ApiResponse.success("Статус отклика изменён", response));
+    }
+
+    @DeleteMapping("/responses/{responseId}")
+    @Operation(summary = "Удаление отклика")
+    public ResponseEntity<ApiResponse<Void>> deleteResponse(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PathVariable UUID responseId) {
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        responseService.deleteResponse(responseId, currentUser.getId(), isAdmin);
+        return ResponseEntity.ok(ApiResponse.success("Отклик удалён", null));
+    }
+}
+
+======================= info/prorabka/varamy/controller/RinkController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.RinkResponse;
+import info.prorabka.varamy.service.RinkService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/rinks")
+@RequiredArgsConstructor
+@Tag(name = "Ледовые дворцы (ЛДС)", description = "Управление информацией о катках")
+public class RinkController {
+
+    private final RinkService rinkService;
+
+    @GetMapping("/city/{cityId}")
+    @Operation(summary = "Получить список ЛДС по ID города")
+    public ResponseEntity<ApiResponse<List<RinkResponse>>> getRinksByCity(
+            @Parameter(description = "ID города", example = "129", required = true)
+            @PathVariable Long cityId) {
+        List<RinkResponse> rinks = rinkService.getRinksByCity(cityId);
+        return ResponseEntity.ok(ApiResponse.success(rinks));
+    }
+
+    @GetMapping("/{rinkId}")
+    @Operation(summary = "Получить информацию о ЛДС по ID")
+    public ResponseEntity<ApiResponse<RinkResponse>> getRinkById(
+            @Parameter(description = "ID ЛДС", example = "36", required = true)
+            @PathVariable Long rinkId) {
+        RinkResponse rink = rinkService.getRinkById(rinkId);
+        return ResponseEntity.ok(ApiResponse.success(rink));
+    }
+
+    @GetMapping("/search")
+    @Operation(summary = "Поиск ЛДС по названию или адресу")
+    public ResponseEntity<ApiResponse<List<RinkResponse>>> searchRinks(
+            @Parameter(description = "Поисковый запрос (название или адрес)", example = "Сибирь")
+            @RequestParam(required = false) String query,
+            @Parameter(description = "ID города для фильтрации", example = "129")
+            @RequestParam(required = false) Long cityId) {
+        List<RinkResponse> rinks = rinkService.searchRinks(query, cityId);
+        return ResponseEntity.ok(ApiResponse.success(rinks));
+    }
+}
+
+======================= info/prorabka/varamy/controller/TestController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.response.ApiResponse;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/test")
+public class TestController {
+
+    @GetMapping("/ping")
+    public ResponseEntity<ApiResponse<String>> ping() {
+        return ResponseEntity.ok(ApiResponse.success("pong"));
+    }
+}
+
+======================= info/prorabka/varamy/controller/UserController.java =======================
+package info.prorabka.varamy.controller;
+
+import info.prorabka.varamy.dto.request.ChangePasswordRequest;
+import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.UserResponse;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.security.SecurityUser;
+import info.prorabka.varamy.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/user")
+@RequiredArgsConstructor
+@Tag(name = "Пользователи", description = "Управление пользователями")
+public class UserController {
+
+    private final UserService userService;
+
+    @GetMapping("/me")
+    @Operation(summary = "Получение данных текущего пользователя")
+    public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(
+            @AuthenticationPrincipal SecurityUser currentUser) {
+        UserResponse response = userService.getCurrentUserResponse(currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PutMapping("/me/password")
+    @Operation(summary = "Смена пароля")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Пароль успешно изменён", null));
+    }
+
+    @PutMapping("/me/phone")
+    @Operation(summary = "Смена телефона")
+    public ResponseEntity<ApiResponse<Void>> changePhone(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @RequestParam(name = "newPhone") String newPhone,
+            @RequestParam(name = "password") String password) {
+        userService.changePhone(currentUser.getId(), newPhone, password);
+        return ResponseEntity.ok(ApiResponse.success("Телефон успешно изменён", null));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Получение списка пользователей (только для админа)")
+    public ResponseEntity<ApiResponse<Page<UserResponse>>> getUsers(
+            @RequestParam(name = "phone", required = false) String phone,
+            @RequestParam(name = "role", required = false) User.UserRole role,
+            @RequestParam(name = "status", required = false) User.UserStatus status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<UserResponse> users = userService.getUsers(phone, role, status, pageable);
+        return ResponseEntity.ok(ApiResponse.success(users));
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Получение пользователя по ID (только для админа)")
+    public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable UUID id) {
+        UserResponse response = userService.getUserResponseById(id);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Обновление пользователя (только для админа)")
+    public ResponseEntity<ApiResponse<UserResponse>> updateUser(
+            @PathVariable UUID id,
+            @RequestParam(name = "phone", required = false) String phone,
+            @RequestParam(name = "role", required = false) User.UserRole role,
+            @RequestParam(name = "status", required = false) User.UserStatus status,
+            @RequestParam(name = "password", required = false) String password) {
+        UserResponse response = userService.updateUser(id, phone, role, status, password);
+        return ResponseEntity.ok(ApiResponse.success("Пользователь обновлён", response));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Удаление пользователя (только для админа)")
+    public ResponseEntity<ApiResponse<Void>> deleteUser(
+            @PathVariable UUID id,
+            @RequestParam(name = "hardDelete", defaultValue = "false") boolean hardDelete) {
+        userService.deleteUser(id, hardDelete);
+        return ResponseEntity.ok(ApiResponse.success("Пользователь удалён", null));
+    }
+}
+
+======================= info/prorabka/varamy/dto/request/AdRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import info.prorabka.varamy.entity.AdDetails;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Data
+@Schema(description = "Запрос на создание/обновление объявления")
+public class AdRequest {
+
+    @NotNull(message = "Тип объявления обязателен")
+    @Schema(description = "Тип объявления (1-5)", example = "1")
+    private Integer type;
+
+    @NotNull(message = "Время начала обязательно")
+    @Schema(description = "Время начала события")
+    private LocalDateTime startTime;
+
+    @Schema(description = "Уровни игроков", example = "[\"A\",\"B\"]")
+    private List<String> level;
+
+    @NotNull(message = "ID города обязателен")
+    @Schema(description = "ID города", example = "57")
+    private Long cityId;
+
+    @Schema(description = "Название команды", example = "Динамо")
+    private String team;
+
+    @Schema(description = "Контактное имя", example = "Иван")
+    private String contactName;
+
+    @Schema(description = "Контактный телефон", example = "+79001234567")
+    private String contactPhone;
+
+    @Schema(description = "ID катков", example = "[1,2,3]")
+    private List<Long> rinkIds;
+
+    @Schema(description = "Детали объявления")
+    private AdDetails details;
+
+    @Schema(description = "Подтип объявления (1-2 для type=1,2,3; 1-4 для type=4)", example = "1")
+    private Integer subType;
+
+    @Schema(description = "Время окончания (для диапазона времени)", example = "2026-03-26T20:00:00")
+    private LocalDateTime endTime;
+
+    @Schema(description = "Отображать команду в объявлении", example = "true")
+    private Boolean showTeam = true;
+
+    @Schema(description = "Количество вратарей (только для type=1, subType=1)", example = "2")
+    private Integer goaliesCount;
+
+    @Schema(description = "Количество защитников (только для type=1, subType=2)", example = "2")
+    private Integer defendersCount;
+
+    @Schema(description = "Количество нападающих (только для type=1, subType=2)", example = "2")
+    private Integer forwardsCount;
+}
+
+======================= info/prorabka/varamy/dto/request/ChangePasswordRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+@Data
+@Schema(description = "Запрос на смену пароля")
+public class ChangePasswordRequest {
+
+    @NotBlank(message = "Старый пароль обязателен")
+    @Schema(description = "Старый пароль")
+    private String oldPassword;
+
+    @NotBlank(message = "Новый пароль обязателен")
+    @Schema(description = "Новый пароль")
+    private String newPassword;
+}
+
+======================= info/prorabka/varamy/dto/request/LoginRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+@Data
+@Schema(description = "Запрос на вход")
+public class LoginRequest {
+
+    @NotBlank(message = "Телефон обязателен")
+    @Schema(description = "Номер телефона", example = "+79001234567")
+    private String phone;
+
+    @NotBlank(message = "Пароль обязателен")
+    @Schema(description = "Пароль", example = "password")
+    private String password;
+}
+
+======================= info/prorabka/varamy/dto/request/ProfileRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.time.LocalDate;
+
+@Data
+@Schema(description = "Запрос на обновление профиля")
+public class ProfileRequest {
+
+    @Schema(description = "Имя", example = "Иван")
+    private String firstName;
+
+    @Schema(description = "Фамилия", example = "Иванов")
+    private String lastName;
+
+    @Schema(description = "Дата рождения", example = "1990-01-01")
+    private LocalDate birthDate;
+
+    @Schema(description = "Амплуа", example = "вратарь")
+    private String position;
+
+    @Schema(description = "Уровень", example = "A")
+    private String level;
+
+    @Schema(description = "Игровой номер", example = "99")
+    private Integer number;
+
+    @Schema(description = "Команда", example = "Динамо")
+    private String team;
+
+    @Schema(description = "Email", example = "ivan@example.com")
+    private String email;
+
+    @Schema(description = "ID домашней страны", example = "1")
+    private Long homeCountryId;
+
+    @Schema(description = "ID домашнего региона", example = "1")
+    private Long homeRegionId;
+
+    @Schema(description = "ID домашнего города", example = "1")
+    private Long homeCityId;
+}
+
+======================= info/prorabka/varamy/dto/request/RefreshTokenRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+@Data
+@Schema(description = "Запрос на обновление токена")
+public class RefreshTokenRequest {
+
+    @NotBlank(message = "Refresh token обязателен")
+    @Schema(description = "Refresh токен")
+    private String refreshToken;
+}
+
+======================= info/prorabka/varamy/dto/request/RegisterRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import lombok.Data;
+
+@Data
+@Schema(description = "Запрос на регистрацию")
+public class RegisterRequest {
+
+    @NotBlank(message = "Телефон обязателен")
+    @Pattern(regexp = "^\\+7\\d{10}$", message = "Телефон должен быть в формате +7XXXXXXXXXX")
+    @Schema(description = "Номер телефона", example = "+79001234567")
+    private String phone;
+
+    @NotBlank(message = "Пароль обязателен")
+    @Schema(description = "Пароль", example = "password")
+    private String password;
+
+    @Schema(description = "ID страны", example = "1")
+    private Long countryId;
+
+    @Schema(description = "ID региона", example = "1")
+    private Long regionId;
+
+    @Schema(description = "ID города", example = "1")
+    private Long cityId;
+}
+
+======================= info/prorabka/varamy/dto/request/ResponseRequest.java =======================
+package info.prorabka.varamy.dto.request;
+
+import info.prorabka.varamy.entity.Response;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+@Data
+@Schema(description = "Запрос на создание отклика")
+public class ResponseRequest {
+
+    @Schema(description = "Сообщение к отклику", example = "Хочу присоединиться!")
+    private String message;
+
+    @Schema(description = "Роль, на которую откликается пользователь (DEFENDER или FORWARD)")
+    private Response.ResponseRole responseRole;
+}
+
+======================= info/prorabka/varamy/dto/response/AdResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.AdDetails;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+
+@Data
+public class AdResponse {
+
+    private UUID id;
+    private UUID authorId;
+    private UserResponse author;
+    private Integer type;
+    private Ad.AdStatus status;
+    private LocalDateTime createdAt;
+    private LocalDateTime startTime;
+    private List<String> level; // теперь список строк, а не массив
+    private CityResponse city;
+    private String team;
+    private String contactName;
+    private String contactPhone;
+    private List<Long> rinkIds;
+    private AdDetails details;
+    private List<ResponseResponse> responses;
+    @Schema(description = "Подтип объявления")
+    private Integer subType;
+
+    @Schema(description = "Время окончания (для диапазона времени)")
+    private LocalDateTime endTime;
+
+    @Schema(description = "Отображать команду в объявлении")
+    private Boolean showTeam;
+
+    @Schema(description = "Количество вратарей (только для type=1, subType=1)")
+    private Integer goaliesCount;
+
+    @Schema(description = "Количество защитников (только для type=1, subType=2)")
+    private Integer defendersCount;
+
+    @Schema(description = "Количество нападающих (только для type=1, subType=2)")
+    private Integer forwardsCount;
+
+    @Schema(description = "Принято откликов вратарей")
+    private Integer acceptedGoaliesCount;
+
+    @Schema(description = "Принято откликов защитников")
+    private Integer acceptedDefendersCount;
+
+    @Schema(description = "Принято откликов нападающих")
+    private Integer acceptedForwardsCount;
+
+}
+
+======================= info/prorabka/varamy/dto/response/ApiResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ApiResponse<T> {
+
+    private boolean success;
+    private String message;
+    private T data;
+
+    public static <T> ApiResponse<T> success(T data) {
+        return new ApiResponse<>(true, null, data);
+    }
+
+    public static <T> ApiResponse<T> success(String message, T data) {
+        return new ApiResponse<>(true, message, data);
+    }
+
+    public static <T> ApiResponse<T> error(String message) {
+        return new ApiResponse<>(false, message, null);
+    }
+}
+
+======================= info/prorabka/varamy/dto/response/AuthResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AuthResponse {
+
+    private String accessToken;
+    private String refreshToken;
+    private UserResponse user;
+}
+
+======================= info/prorabka/varamy/dto/response/CityResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.Data;
+
+@Data
+public class CityResponse {
+
+    private Long id;
+    private String name;
+    private RegionResponse region;
+}
+
+======================= info/prorabka/varamy/dto/response/CitySimpleResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CitySimpleResponse {
+    private Long id;
+    private String name;
+}
+
+======================= info/prorabka/varamy/dto/response/CountryResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.Data;
+
+@Data
+public class CountryResponse {
+
+    private Long id;
+    private String name;
+    private String code;
+    private String phoneCode;
+}
+
+======================= info/prorabka/varamy/dto/response/CountrySimpleResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CountrySimpleResponse {
+    private Long id;
+    private String name;
+    private String code;
+}
+
+======================= info/prorabka/varamy/dto/response/MyResponseAdResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+@Data
+@Schema(description = "Объявление с информацией об отклике пользователя")
+public class MyResponseAdResponse {
+
+    @Schema(description = "Полная информация об объявлении")
+    private AdResponse ad;
+
+    @Schema(description = "Информация об отклике пользователя")
+    private ResponseResponse myResponse;
+}
+
+======================= info/prorabka/varamy/dto/response/ProfileResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.Data;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+@Data
+public class ProfileResponse {
+
+    private UUID id;
+    private String firstName;
+    private String lastName;
+    private LocalDate birthDate;
+    private String position;
+    private String level;
+    private Integer number;
+    private String team;
+    private String email;
+    private String avatarUrl;
+    private CountryResponse homeCountry;
+    private RegionResponse homeRegion;
+    private CityResponse homeCity;
+}
+
+======================= info/prorabka/varamy/dto/response/RegionResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.Data;
+
+@Data
+public class RegionResponse {
+
+    private Long id;
+    private String name;
+    private CountryResponse country;
+    private String autoCode;
+}
+
+======================= info/prorabka/varamy/dto/response/RegionSimpleResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class RegionSimpleResponse {
+    private Long id;
+    private String name;
+    private String autoCode;
+}
+
+======================= info/prorabka/varamy/dto/response/ResponseResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import info.prorabka.varamy.entity.City;
+import info.prorabka.varamy.entity.Country;
+import info.prorabka.varamy.entity.Region;
+import info.prorabka.varamy.entity.Response;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Column;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import lombok.Data;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+public class ResponseResponse {
+
+    private UUID id;
+    private UUID adId;
+    private UUID userId;
+    private UserResponse user;
+    private Response.ResponseStatus status;
+    private String message;
+    private LocalDateTime createdAt;
+    @Schema(description = "Роль отклика (для объявлений 1.2)")
+    private Response.ResponseRole responseRole;
+}
+
+======================= info/prorabka/varamy/dto/response/RinkResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import lombok.Data;
+
+@Data
+public class RinkResponse {
+
+    private Long id;
+    private String name;
+    private CountryResponse country;
+    private RegionResponse region;
+    private CityResponse city;
+    private String address;
+    private String phone;
+    private Double rating;
+    private Double latitude;
+    private Double longitude;
+    private String[] features;
+}
+
+======================= info/prorabka/varamy/dto/response/UserResponse.java =======================
+package info.prorabka.varamy.dto.response;
+
+import info.prorabka.varamy.entity.User;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+public class UserResponse {
+
+    private UUID id;
+    private String phone;
+    private User.UserRole role;
+    private User.UserSubrole subrole;
+    private User.UserStatus status;
+    private LocalDateTime registeredAt;
+    private LocalDateTime lastLoginAt;
+    private ProfileResponse profile;
+}
+
+======================= info/prorabka/varamy/entity/Ad.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+
+@Entity
+@Table(name = "ads")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Ad {
+
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @org.hibernate.annotations.GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
+    @Column(name = "id", updatable = false, nullable = false, columnDefinition = "uuid")
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id", nullable = false)
+    private User author;
+
+    @Column(name = "type", nullable = false)
+    private Integer type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private AdStatus status = AdStatus.MODERATION;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "start_time", nullable = false)
+    private LocalDateTime startTime;
+
+    @ElementCollection
+    @CollectionTable(name = "ad_levels", joinColumns = @JoinColumn(name = "ad_id"))
+    @Column(name = "level")
+    private List<String> levels;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "city_id", nullable = false)
+    private City city;
+
+    @Column(name = "team", length = 200)
+    private String team;
+
+    @Column(name = "contact_name", length = 100)
+    private String contactName;
+
+    @Column(name = "contact_phone", length = 20)
+    private String contactPhone;
+
+    @Column(name = "rink_ids", columnDefinition = "bigint[]")
+    private Long[] rinkIds;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "details", columnDefinition = "jsonb")
+    private AdDetails details;
+
+    @OneToMany(mappedBy = "ad", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Response> responses;
+
+    public enum AdStatus {
+        MODERATION, ACTIVE, FILLED, ARCHIVED
+    }
+
+    @Column(name = "sub_type")
+    private Integer subType;
+
+    @Column(name = "end_time")
+    private LocalDateTime endTime;
+
+    @Column(name = "show_team")
+    private Boolean showTeam = true;
+
+    @Column(name = "goalies_count")
+    private Integer goaliesCount;
+
+    @Column(name = "defenders_count")
+    private Integer defendersCount;
+
+    @Column(name = "forwards_count")
+    private Integer forwardsCount;
+
+    @Column(name = "accepted_goalies_count")
+    private Integer acceptedGoaliesCount = 0;
+
+    @Column(name = "accepted_defenders_count")
+    private Integer acceptedDefendersCount = 0;
+
+    @Column(name = "accepted_forwards_count")
+    private Integer acceptedForwardsCount = 0;
+
+    @Column(name = "accepted_responses_count")
+    private Integer acceptedResponsesCount = 0;
+
+}
+
+======================= info/prorabka/varamy/entity/AdDetails.java =======================
+package info.prorabka.varamy.entity;
+
+import lombok.Data;
+import java.util.List;
+
+@Data
+public class AdDetails {
+    // type=1 (Ищу игрока)
+    private String role; // "вратарь" или "полевой"
+    private Integer countPlayers;
+    private Integer defenders;
+    private Integer forwards;
+    private String delivery; // "yes"/"no"
+    private String payment;
+
+    // type=2,3 (Ищу игру)
+    private String endTime;
+
+    // type=4 (Ищу команду для матча)
+    private String team;
+
+    // type=5 (Ищу специалиста)
+    private List<String> specialists;
+}
+
+======================= info/prorabka/varamy/entity/City.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.util.List;
+
+@Entity
+@Table(name = "city")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class City {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false, length = 100)
+    private String name;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "region_id", nullable = false)
+    private Region region;
+
+    @OneToMany(mappedBy = "city")
+    private List<Rink> rinks;
+}
+
+======================= info/prorabka/varamy/entity/Country.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.util.List;
+
+@Entity
+@Table(name = "country")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Country {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false, unique = true, length = 100)
+    private String name;
+
+    @Column(name = "code", nullable = false, unique = true, length = 2)
+    private String code;
+
+    @Column(name = "phone_code", length = 10)
+    private String phoneCode;
+
+    @OneToMany(mappedBy = "country", cascade = CascadeType.ALL)
+    private List<Region> regions;
+}
+
+======================= info/prorabka/varamy/entity/Profile.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+@Entity
+@Table(name = "profiles")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Profile {
+
+    @Id
+    @Column(name = "id", columnDefinition = "uuid")
+    private UUID id;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @MapsId
+    @JoinColumn(name = "id")
+    private User user;
+
+    @Column(name = "first_name", length = 100)
+    private String firstName;
+
+    @Column(name = "last_name", length = 100)
+    private String lastName;
+
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
+    @Column(name = "position", length = 50)
+    private String position;
+
+    @Column(name = "level", length = 1)
+    private String level;
+
+    @Column(name = "number")
+    private Integer number;
+
+    @Column(name = "team", length = 100)
+    private String team;
+
+    @Column(name = "email", length = 100)
+    private String email;
+
+    @Column(name = "avatar_url", columnDefinition = "text")
+    private String avatarUrl;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "home_country_id")
+    private Country homeCountry;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "home_region_id")
+    private Region homeRegion;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "home_city_id")
+    private City homeCity;
+}
+
+======================= info/prorabka/varamy/entity/RefreshToken.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(name = "refresh_tokens")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class RefreshToken {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @Column(name = "token", nullable = false, unique = true, length = 500)
+    private String token;
+
+    @Column(name = "expiry_date", nullable = false)
+    private Instant expiryDate;
+
+    @Column(name = "user_agent", length = 500)
+    private String userAgent;
+
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
+}
+
+======================= info/prorabka/varamy/entity/Region.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.util.List;
+
+@Entity
+@Table(name = "region")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Region {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false, length = 100)
+    private String name;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "country_id", nullable = false)
+    private Country country;
+
+    @Column(name = "auto_code", length = 5)
+    private String autoCode;
+
+    @OneToMany(mappedBy = "region", cascade = CascadeType.ALL)
+    private List<City> cities;
+}
+
+======================= info/prorabka/varamy/entity/Response.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "responses")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Response {
+
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @org.hibernate.annotations.GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
+    @Column(name = "id", updatable = false, nullable = false, columnDefinition = "uuid")
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ad_id", nullable = false)
+    private Ad ad;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private ResponseStatus status = ResponseStatus.PENDING;
+
+    @Column(name = "message", columnDefinition = "text")
+    private String message;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    public enum ResponseStatus {
+        PENDING, APPROVED, REJECTED
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "response_role")
+    private ResponseRole responseRole;
+
+    public enum ResponseRole {
+        GOALIE, DEFENDER, FORWARD
+    }
+}
+
+======================= info/prorabka/varamy/entity/Rink.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.List;
+
+@Entity
+@Table(name = "rinks")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Rink {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false, length = 200)
+    private String name;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "country_id", nullable = false)
+    private Country country;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "region_id", nullable = false)
+    private Region region;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "city_id", nullable = false)
+    private City city;
+
+    @Column(name = "address", nullable = false, columnDefinition = "text")
+    private String address;
+
+    @Column(name = "phone", length = 50)
+    private String phone;
+
+    @Column(name = "rating")
+    private Double rating;
+
+    @Column(name = "latitude", nullable = false)
+    private Double latitude;
+
+    @Column(name = "longitude", nullable = false)
+    private Double longitude;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "features", columnDefinition = "text[]")
+    private List<String> features;
+}
+
+======================= info/prorabka/varamy/entity/User.java =======================
+package info.prorabka.varamy.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.hibernate.annotations.GenericGenerator;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "users")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class User {
+
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
+    @Column(name = "id", updatable = false, nullable = false, columnDefinition = "uuid")
+    private UUID id;
+
+    @Column(name = "phone", unique = true, nullable = false, length = 20)
+    private String phone;
+
+    @Column(name = "password_hash", nullable = false, length = 100)
+    private String passwordHash;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, length = 20)
+    private UserRole role = UserRole.USER;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "subrole", length = 20)
+    private UserSubrole subrole;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private UserStatus status = UserStatus.ACTIVE;
+
+    @Column(name = "registered_at", nullable = false)
+    private LocalDateTime registeredAt = LocalDateTime.now();
+
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private Profile profile;
+
+    public enum UserRole {
+        USER, MODERATOR, ADMIN
+    }
+
+    public enum UserSubrole {
+        PLAYER, SPECIALIST
+    }
+
+    public enum UserStatus {
+        ACTIVE, BLOCKED
+    }
+}
+
+======================= info/prorabka/varamy/exception/BadRequestException.java =======================
+package info.prorabka.varamy.exception;
+
+public class BadRequestException extends RuntimeException {
+
+    public BadRequestException(String message) {
+        super(message);
+    }
+}
+
+======================= info/prorabka/varamy/exception/GlobalExceptionHandler.java =======================
+package info.prorabka.varamy.exception;
+
+import info.prorabka.varamy.dto.response.ApiResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(ResourceNotFoundException e) {
+        log.error("Resource not found: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadRequest(BadRequestException e) {
+        log.error("Bad request: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnauthorized(UnauthorizedException e) {
+        log.error("Unauthorized: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadCredentials(BadCredentialsException e) {
+        log.error("Bad credentials: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error("Неверный телефон или пароль"));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationExceptions(
+            MethodArgumentNotValidException e) {
+        Map<String, String> errors = new HashMap<>();
+        e.getBindingResult().getAllErrors().forEach(error -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        log.error("Validation error: {}", errors);
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("Ошибка валидации"));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception e) {
+        log.error("Internal server error", e);
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("Внутренняя ошибка сервера"));
+    }
+}
+
+======================= info/prorabka/varamy/exception/ResourceNotFoundException.java =======================
+package info.prorabka.varamy.exception;
+
+public class ResourceNotFoundException extends RuntimeException {
+
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
+}
+
+======================= info/prorabka/varamy/exception/UnauthorizedException.java =======================
+package info.prorabka.varamy.exception;
+
+public class UnauthorizedException extends RuntimeException {
+
+    public UnauthorizedException(String message) {
+        super(message);
+    }
+}
+
+======================= info/prorabka/varamy/mapper/AdMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.request.AdRequest;
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.City;
+import org.mapstruct.*;
+
+import java.util.Arrays;
+import java.util.List;
+
+@Mapper(componentModel = "spring", uses = {UserMapper.class, CityMapper.class, ResponseMapper.class},
+        unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface AdMapper {
+
+    @Mapping(source = "author", target = "author")
+    @Mapping(source = "author.id", target = "authorId")
+    @Mapping(source = "city", target = "city")
+    @Mapping(source = "levels", target = "level")
+    @Mapping(source = "rinkIds", target = "rinkIds", qualifiedByName = "arrayToListLong")
+    @Mapping(source = "responses", target = "responses")
+    @Mapping(source = "subType", target = "subType")
+    @Mapping(source = "endTime", target = "endTime")
+    @Mapping(source = "showTeam", target = "showTeam")
+    @Mapping(source = "goaliesCount", target = "goaliesCount")
+    @Mapping(source = "defendersCount", target = "defendersCount")
+    @Mapping(source = "forwardsCount", target = "forwardsCount")
+    @Mapping(source = "acceptedGoaliesCount", target = "acceptedGoaliesCount")
+    @Mapping(source = "acceptedDefendersCount", target = "acceptedDefendersCount")
+    @Mapping(source = "acceptedForwardsCount", target = "acceptedForwardsCount")
+    AdResponse toResponse(Ad ad);
+
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "author", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "responses", ignore = true)
+    @Mapping(target = "levels", source = "level")
+    @Mapping(target = "rinkIds", source = "rinkIds", qualifiedByName = "listToArrayLong")
+    @Mapping(target = "city", source = "cityId", qualifiedByName = "cityIdToCity")
+    @Mapping(target = "subType", source = "subType")
+    @Mapping(target = "endTime", source = "endTime")
+    @Mapping(target = "showTeam", source = "showTeam")
+    @Mapping(target = "goaliesCount", source = "goaliesCount")
+    @Mapping(target = "defendersCount", source = "defendersCount")
+    @Mapping(target = "forwardsCount", source = "forwardsCount")
+    @Mapping(target = "acceptedGoaliesCount", ignore = true)
+    @Mapping(target = "acceptedDefendersCount", ignore = true)
+    @Mapping(target = "acceptedForwardsCount", ignore = true)
+    Ad toEntity(AdRequest request, @Context City city);
+
+    // Аналогично для updateAd
+    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "author", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "responses", ignore = true)
+    @Mapping(target = "levels", source = "level")
+    @Mapping(target = "rinkIds", source = "rinkIds", qualifiedByName = "listToArrayLong")
+    @Mapping(target = "city", source = "cityId", qualifiedByName = "cityIdToCity")
+    @Mapping(target = "subType", source = "subType")
+    @Mapping(target = "endTime", source = "endTime")
+    @Mapping(target = "showTeam", source = "showTeam")
+    @Mapping(target = "goaliesCount", source = "goaliesCount")
+    @Mapping(target = "defendersCount", source = "defendersCount")
+    @Mapping(target = "forwardsCount", source = "forwardsCount")
+    @Mapping(target = "acceptedGoaliesCount", ignore = true)
+    @Mapping(target = "acceptedDefendersCount", ignore = true)
+    @Mapping(target = "acceptedForwardsCount", ignore = true)
+    void updateAd(@MappingTarget Ad ad, AdRequest request, @Context City city);
+
+    @Named("arrayToListLong")
+    default List<Long> arrayToListLong(Long[] array) {
+        return array != null ? Arrays.asList(array) : null;
+    }
+
+    @Named("listToArrayLong")
+    default Long[] listToArrayLong(List<Long> list) {
+        return list != null ? list.toArray(new Long[0]) : null;
+    }
+
+    @Named("cityIdToCity")
+    default City cityIdToCity(Long cityId, @Context City city) {
+        return city;
+    }
+}
+
+======================= info/prorabka/varamy/mapper/CityMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.CityResponse;
+import info.prorabka.varamy.entity.City;
+import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {RegionMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface CityMapper {
+
+    CityResponse toResponse(City city);
+}
+
+======================= info/prorabka/varamy/mapper/CountryMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.CountryResponse;
+import info.prorabka.varamy.entity.Country;
+import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface CountryMapper {
+
+    CountryResponse toResponse(Country country);
+}
+
+======================= info/prorabka/varamy/mapper/ProfileMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.request.ProfileRequest;
+import info.prorabka.varamy.dto.response.ProfileResponse;
+import info.prorabka.varamy.entity.Profile;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {CountryMapper.class, RegionMapper.class, CityMapper.class},
+        unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface ProfileMapper {
+
+    @Mapping(source = "homeCountry", target = "homeCountry")
+    @Mapping(source = "homeRegion", target = "homeRegion")
+    @Mapping(source = "homeCity", target = "homeCity")
+    ProfileResponse toResponse(Profile profile);
+
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "user", ignore = true)
+    @Mapping(target = "homeCountry", ignore = true)
+    @Mapping(target = "homeRegion", ignore = true)
+    @Mapping(target = "homeCity", ignore = true)
+    void updateProfile(@MappingTarget Profile profile, ProfileRequest request);
+}
+
+======================= info/prorabka/varamy/mapper/RegionMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.RegionResponse;
+import info.prorabka.varamy.entity.Region;
+import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {CountryMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface RegionMapper {
+
+    RegionResponse toResponse(Region region);
+}
+
+======================= info/prorabka/varamy/mapper/ResponseMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.ResponseResponse;
+import info.prorabka.varamy.entity.Response;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {UserMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface ResponseMapper {
+
+    @Mapping(source = "ad.id", target = "adId")
+    @Mapping(source = "user", target = "user")
+    @Mapping(source = "user.id", target = "userId")
+    @Mapping(source = "responseRole", target = "responseRole")
+    ResponseResponse toResponse(Response response);
+}
+
+======================= info/prorabka/varamy/mapper/RinkMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.RinkResponse;
+import info.prorabka.varamy.entity.Rink;
+import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {CountryMapper.class, RegionMapper.class, CityMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface RinkMapper {
+
+    RinkResponse toResponse(Rink rink);
+}
+
+======================= info/prorabka/varamy/mapper/UserMapper.java =======================
+package info.prorabka.varamy.mapper;
+
+import info.prorabka.varamy.dto.response.UserResponse;
+import info.prorabka.varamy.entity.User;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.ReportingPolicy;
+
+@Mapper(componentModel = "spring", uses = {ProfileMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+public interface UserMapper {
+
+    UserResponse toResponse(User user);
+}
+
+======================= info/prorabka/varamy/repository/AdRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface AdRepository extends JpaRepository<Ad, UUID> {
+
+    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (исключают ARCHIVED по умолчанию) =============
+
+    @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
+            "a.status != 'ARCHIVED' AND " +
+            "(:cityId IS NULL OR a.city.id = :cityId) AND " +
+            "(:type IS NULL OR a.type = :type) AND " +
+            "(:subType IS NULL OR a.subType = :subType) AND " +
+            "(:status IS NULL OR a.status = :status) AND " +
+            "(:level IS NULL OR l IN :level) AND " +
+            "(:authorId IS NULL OR a.author.id = :authorId)")
+    Page<Ad> findWithFiltersPublic(
+            @Param("cityId") Long cityId,
+            @Param("type") Integer type,
+            @Param("subType") Integer subType,
+            @Param("status") Ad.AdStatus status,
+            @Param("level") List<String> level,
+            @Param("authorId") UUID authorId,
+            Pageable pageable);
+
+    @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
+            "a.status = 'ACTIVE' AND " +
+            "(:type IS NULL OR a.type = :type) AND " +
+            "(:subType IS NULL OR a.subType = :subType) AND " +
+            "(:level IS NULL OR l IN :level)")
+    Page<Ad> findAllActivePublic(
+            @Param("type") Integer type,
+            @Param("subType") Integer subType,
+            @Param("level") List<String> level,
+            Pageable pageable);
+
+    @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
+            "a.status IN :statuses AND " +
+            "(:type IS NULL OR a.type = :type) AND " +
+            "(:subType IS NULL OR a.subType = :subType) AND " +
+            "(:level IS NULL OR l IN :level)")
+    Page<Ad> findMainPageAdsPublic(
+            @Param("statuses") List<Ad.AdStatus> statuses,
+            @Param("type") Integer type,
+            @Param("subType") Integer subType,
+            @Param("level") List<String> level,
+            Pageable pageable);
+
+    // ============= АДМИНИСТРАТИВНЫЕ МЕТОДЫ (могут включать ARCHIVED) =============
+
+    @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
+            "(:cityId IS NULL OR a.city.id = :cityId) AND " +
+            "(:type IS NULL OR a.type = :type) AND " +
+            "(:subType IS NULL OR a.subType = :subType) AND " +
+            "(:status IS NULL OR a.status = :status) AND " +
+            "(:level IS NULL OR l IN :level) AND " +
+            "(:authorId IS NULL OR a.author.id = :authorId)")
+    Page<Ad> findWithFiltersAdmin(
+            @Param("cityId") Long cityId,
+            @Param("type") Integer type,
+            @Param("subType") Integer subType,
+            @Param("status") Ad.AdStatus status,
+            @Param("level") List<String> level,
+            @Param("authorId") UUID authorId,
+            Pageable pageable);
+
+    // ============= МЕТОДЫ ДЛЯ АВТОРА (показывают все его объявления) =============
+
+    @Query("SELECT a FROM Ad a WHERE a.author = :author ORDER BY a.createdAt DESC")
+    Page<Ad> findByAuthor(@Param("author") User author, Pageable pageable);
+
+    // ============= МЕТОДЫ ДЛЯ МОДЕРАЦИИ =============
+
+    Page<Ad> findByStatus(Ad.AdStatus status, Pageable pageable);
+
+    // ============= МЕТОДЫ ДЛЯ АРХИВАЦИИ И ОЧИСТКИ =============
+
+    @Query("SELECT a FROM Ad a WHERE a.endTime < :endTime AND a.status != :status")
+    List<Ad> findByEndTimeBeforeAndStatusNot(
+            @Param("endTime") LocalDateTime endTime,
+            @Param("status") Ad.AdStatus status);
+
+    @Query("SELECT a FROM Ad a WHERE a.status = :status AND a.createdAt < :date")
+    List<Ad> findByStatusAndCreatedAtBefore(
+            @Param("status") Ad.AdStatus status,
+            @Param("date") LocalDateTime date);
+
+    long countByStatus(Ad.AdStatus status);
+}
+
+======================= info/prorabka/varamy/repository/CityRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.City;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface CityRepository extends JpaRepository<City, Long> {
+
+    List<City> findByRegionId(Long regionId);
+
+    @Query("SELECT c FROM City c WHERE c.region.country.id = :countryId")
+    List<City> findByCountryId(@Param("countryId") Long countryId);
+}
+
+======================= info/prorabka/varamy/repository/CountryRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Country;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface CountryRepository extends JpaRepository<Country, Long> {
+
+    Optional<Country> findByCode(String code);
+
+    Optional<Country> findByName(String name);
+}
+
+======================= info/prorabka/varamy/repository/ProfileRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Profile;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.UUID;
+
+@Repository
+public interface ProfileRepository extends JpaRepository<Profile, UUID> {
+}
+
+======================= info/prorabka/varamy/repository/RefreshTokenRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.RefreshToken;
+import info.prorabka.varamy.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+
+    Optional<RefreshToken> findByToken(String token);
+
+    void deleteByUser(User user);
+}
+
+======================= info/prorabka/varamy/repository/RegionRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Region;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface RegionRepository extends JpaRepository<Region, Long> {
+    List<Region> findByCountryId(Long countryId);
+}
+
+======================= info/prorabka/varamy/repository/ResponseRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Response;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;  // <-- Добавить этот импорт
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public interface ResponseRepository extends JpaRepository<Response, UUID> {
+
+    boolean existsByAdAndUser(Ad ad, User user);
+    List<Response> findByAd(Ad ad);
+    @Query("SELECT r FROM Response r " +
+            "JOIN FETCH r.user u " +
+            "JOIN FETCH u.profile p " +
+            "WHERE r.ad = :ad")
+    List<Response> findByAdWithUserAndProfile(@Param("ad") Ad ad);
+
+    @Query("SELECT r FROM Response r " +
+            "JOIN FETCH r.ad a " +
+            "JOIN FETCH a.author " +
+            "JOIN FETCH a.city c " +
+            "JOIN FETCH c.region reg " +
+            "JOIN FETCH reg.country " +
+            "WHERE r.user.id = :userId " +
+            "ORDER BY r.createdAt DESC")
+    List<Response> findResponsesByUserIdWithAds(@Param("userId") UUID userId);
+
+    // Альтернативный вариант с пагинацией
+    @Query("SELECT r FROM Response r " +
+            "JOIN FETCH r.ad a " +
+            "JOIN FETCH a.author " +
+            "JOIN FETCH a.city c " +
+            "JOIN FETCH c.region reg " +
+            "JOIN FETCH reg.country " +
+            "WHERE r.user.id = :userId " +
+            "ORDER BY r.createdAt DESC")
+    Page<Response> findResponsesByUserIdWithAds(@Param("userId") UUID userId, Pageable pageable);
+}
+
+======================= info/prorabka/varamy/repository/RinkRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.Rink;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface RinkRepository extends JpaRepository<Rink, Long> {
+
+    List<Rink> findByCityId(Long cityId);
+
+    @Query("SELECT r FROM Rink r WHERE " +
+            "(:cityId IS NULL OR r.city.id = :cityId) AND " +
+            "(:search IS NULL OR LOWER(r.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(r.address) LIKE LOWER(CONCAT('%', :search, '%')))")
+    Page<Rink> findWithFilters(
+            @Param("cityId") Long cityId,
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query("SELECT r FROM Rink r WHERE " +
+            "(:query IS NULL OR LOWER(r.name) LIKE LOWER(CONCAT('%', :query, '%')) OR LOWER(r.address) LIKE LOWER(CONCAT('%', :query, '%'))) AND " +
+            "(:cityId IS NULL OR r.city.id = :cityId)")
+    List<Rink> search(@Param("query") String query, @Param("cityId") Long cityId);
+}
+
+======================= info/prorabka/varamy/repository/UserRepository.java =======================
+package info.prorabka.varamy.repository;
+
+import info.prorabka.varamy.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, UUID> {
+
+    Optional<User> findByPhone(String phone);
+
+    boolean existsByPhone(String phone);
+
+    @Query("SELECT u FROM User u WHERE " +
+            "(:phone IS NULL OR u.phone LIKE %:phone%) AND " +
+            "(:role IS NULL OR u.role = :role) AND " +
+            "(:status IS NULL OR u.status = :status)")
+    Page<User> findWithFilters(
+            @Param("phone") String phone,
+            @Param("role") User.UserRole role,
+            @Param("status") User.UserStatus status,
+            Pageable pageable);
+}
+
+======================= info/prorabka/varamy/security/JwtAuthenticationFilter.java =======================
+package info.prorabka.varamy.security;
+
+import info.prorabka.varamy.service.JwtService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.NonNull;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UserDetailsServiceImpl userDetailsService;
+
+    @Override
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain
+    ) throws ServletException, IOException {
+        try {
+            String jwt = parseJwt(request);
+            if (jwt != null) {
+                if (jwtService.validateToken(jwt)) {
+                    String userId = jwtService.getUserIdFromToken(jwt);
+                    UserDetails userDetails = userDetailsService.loadUserByUsername(userId);
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } else {
+                    // Невалидный токен – отправляем 401 и прерываем
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"success\":false,\"message\":\"Невалидный токен\"}");
+                    return;
+                }
+            }
+            // Если токена нет, просто пропускаем (он не установит аутентификацию)
+            // Но тогда запрос пойдёт дальше и может упасть, если эндпоинт требует аутентификации.
+            // Однако Spring Security сам вернёт 401 в этом случае, если мы настроили entryPoint.
+        } catch (Exception e) {
+            log.error("JWT processing error: {}", e.getMessage());
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"success\":false,\"message\":\"Ошибка аутентификации\"}");
+            return;
+        }
+        filterChain.doFilter(request, response);
+    }
+
+    private String parseJwt(HttpServletRequest request) {
+        String headerAuth = request.getHeader("Authorization");
+        if (headerAuth != null && headerAuth.startsWith("Bearer ")) {
+            return headerAuth.substring(7);
+        }
+        return null; // отсутствует или не начинается с Bearer
+    }
+}
+
+======================= info/prorabka/varamy/security/SecurityUser.java =======================
+package info.prorabka.varamy.security;
+
+import info.prorabka.varamy.entity.User;
+import lombok.Data;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+
+@Data
+public class SecurityUser implements UserDetails {
+
+    private UUID id;
+    private String phone;
+    private String password;
+    private Collection<? extends GrantedAuthority> authorities;
+
+    public static SecurityUser build(User user) {
+        SecurityUser securityUser = new SecurityUser();
+        securityUser.setId(user.getId());
+        securityUser.setPhone(user.getPhone());
+        securityUser.setPassword(user.getPasswordHash());
+
+        List<GrantedAuthority> authorities = List.of(
+                new SimpleGrantedAuthority("ROLE_" + user.getRole().name())
+        );
+        securityUser.setAuthorities(authorities);
+
+        return securityUser;
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return id.toString();
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+======================= info/prorabka/varamy/security/UserDetailsServiceImpl.java =======================
+package info.prorabka.varamy.security;
+
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+
+@Service
+@RequiredArgsConstructor
+public class UserDetailsServiceImpl implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    @Override
+    @Transactional
+    public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userId));
+
+        if (user.getStatus() != User.UserStatus.ACTIVE) {
+            throw new UsernameNotFoundException("User is not active");
+        }
+
+        return SecurityUser.build(user);
+    }
+}
+
+======================= info/prorabka/varamy/service/AdService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.request.AdRequest;
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.City;
+import info.prorabka.varamy.entity.Profile;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.exception.BadRequestException;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.exception.UnauthorizedException;
+import info.prorabka.varamy.mapper.AdMapper;
+import info.prorabka.varamy.repository.AdRepository;
+import info.prorabka.varamy.repository.CityRepository;
+import lombok.Builder;
+import lombok.Value;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AdService {
+
+    private final AdRepository adRepository;
+    private final CityRepository cityRepository;
+    private final AdMapper adMapper;
+    private final UserService userService;
+
+    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (исключают архивные) =============
+
+    public Page<AdResponse> getAds(Long cityId, Integer type, Integer subType,
+                                   Ad.AdStatus status, List<String> level,
+                                   UUID authorId, Pageable pageable) {
+        if (cityId == null) {
+            throw new BadRequestException("Параметр cityId обязателен");
+        }
+        return adRepository.findWithFiltersPublic(cityId, type, subType, status, level, authorId, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    public Page<AdResponse> getAllActiveAds(Integer type, Integer subType, List<String> level, Pageable pageable) {
+        return adRepository.findAllActivePublic(type, subType, level, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    public Page<AdResponse> getMainPageAds(Integer type, Integer subType, List<String> level, Pageable pageable) {
+        return adRepository.findMainPageAdsPublic(
+                        List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
+                        type, subType, level, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    public AdResponse getAdById(UUID id) {
+        Ad ad = adRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+        return adMapper.toResponse(ad);
+    }
+
+    // ============= МЕТОДЫ ДЛЯ АВТОРА (показывают все объявления) =============
+
+    public Page<AdResponse> getMyAds(UUID userId, Pageable pageable) {
+        User user = userService.getUserById(userId);
+        return adRepository.findByAuthor(user, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    // ============= АДМИНИСТРАТИВНЫЕ МЕТОДЫ (могут показывать архивные) =============
+
+    public Page<AdResponse> getAdsAdmin(Long cityId, Integer type, Integer subType,
+                                        Ad.AdStatus status, List<String> level,
+                                        UUID authorId, Pageable pageable) {
+        return adRepository.findWithFiltersAdmin(cityId, type, subType, status, level, authorId, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    // ============= МЕТОДЫ ДЛЯ МОДЕРАЦИИ =============
+
+    public Page<AdResponse> getAdsForModeration(Pageable pageable) {
+        return adRepository.findByStatus(Ad.AdStatus.MODERATION, pageable)
+                .map(adMapper::toResponse);
+    }
+
+    // ============= СОЗДАНИЕ ОБЪЯВЛЕНИЯ =============
+
+    @Transactional
+    public AdResponse createAd(UUID authorId, AdRequest request) {
+        User author = userService.getUserById(authorId);
+        Profile profile = author.getProfile();
+
+        validateAdRequest(request);
+
+        City city = cityRepository.findById(request.getCityId())
+                .orElseThrow(() -> new ResourceNotFoundException("Город не найден"));
+
+        Ad ad = adMapper.toEntity(request, city);
+        ad.setAuthor(author);
+        ad.setCity(city);
+        ad.setStatus(Ad.AdStatus.ACTIVE);
+
+        String fullName = (profile.getFirstName() != null ? profile.getFirstName() : "") +
+                (profile.getLastName() != null ? " " + profile.getLastName() : "");
+        ad.setContactName(fullName.trim().isEmpty() ? author.getPhone() : fullName.trim());
+        ad.setContactPhone(author.getPhone());
+
+        if (request.getTeam() == null && profile.getTeam() != null) {
+            ad.setTeam(profile.getTeam());
+        }
+
+        if (request.getLevel() != null && !request.getLevel().isEmpty()) {
+            List<String> validLevels = List.of("A", "B", "C", "D", "E", "F", "G", "H");
+            for (String level : request.getLevel()) {
+                if (!validLevels.contains(level)) {
+                    throw new BadRequestException("Неверный уровень: " + level + ". Допустимые значения: A-H");
+                }
+            }
+            ad.setLevels(request.getLevel());
+        }
+
+        if (request.getType() == 1) {
+            if (request.getSubType() == 1) {
+                ad.setGoaliesCount(request.getGoaliesCount());
+            } else if (request.getSubType() == 2) {
+                ad.setDefendersCount(request.getDefendersCount());
+                ad.setForwardsCount(request.getForwardsCount());
+            }
+        }
+
+        ad.setAcceptedGoaliesCount(0);
+        ad.setAcceptedDefendersCount(0);
+        ad.setAcceptedForwardsCount(0);
+        ad.setAcceptedResponsesCount(0);
+
+        if (request.getEndTime() == null && !requiresEndTime(request.getType(), request.getSubType())) {
+            ad.setEndTime(request.getStartTime());
+        } else {
+            ad.setEndTime(request.getEndTime());
+        }
+
+        ad = adRepository.save(ad);
+        return adMapper.toResponse(ad);
+    }
+
+    // ============= ОБНОВЛЕНИЕ ОБЪЯВЛЕНИЯ =============
+
+    @Transactional
+    public AdResponse updateAd(UUID adId, UUID userId, AdRequest request, boolean isAdmin) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+
+        if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
+            throw new UnauthorizedException("Нет прав на редактирование этого объявления");
+        }
+
+        validateAdRequest(request);
+
+        City city = cityRepository.findById(request.getCityId())
+                .orElseThrow(() -> new ResourceNotFoundException("Город не найден"));
+
+        adMapper.updateAd(ad, request, city);
+
+        if (request.getLevel() != null && !request.getLevel().isEmpty()) {
+            List<String> validLevels = List.of("A", "B", "C", "D", "E", "F", "G", "H");
+            for (String level : request.getLevel()) {
+                if (!validLevels.contains(level)) {
+                    throw new BadRequestException("Неверный уровень: " + level + ". Допустимые значения: A-H");
+                }
+            }
+            ad.setLevels(request.getLevel());
+        } else {
+            ad.setLevels(null);
+        }
+
+        if (request.getType() == 1) {
+            if (request.getSubType() == 1) {
+                ad.setGoaliesCount(request.getGoaliesCount());
+            } else if (request.getSubType() == 2) {
+                ad.setDefendersCount(request.getDefendersCount());
+                ad.setForwardsCount(request.getForwardsCount());
+            }
+        }
+
+        if (!ad.getAuthor().getId().equals(userId)) {
+            ad.setStatus(Ad.AdStatus.MODERATION);
+        }
+
+        if (request.getEndTime() == null && !requiresEndTime(request.getType(), request.getSubType())) {
+            ad.setEndTime(request.getStartTime());
+        } else {
+            ad.setEndTime(request.getEndTime());
+        }
+
+        ad = adRepository.save(ad);
+        return adMapper.toResponse(ad);
+    }
+
+    // ============= УДАЛЕНИЕ =============
+
+    @Transactional
+    public void deleteAd(UUID adId, UUID userId, boolean isAdmin) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+
+        if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
+            throw new UnauthorizedException("Нет прав на удаление этого объявления");
+        }
+
+        adRepository.delete(ad);
+    }
+
+    // ============= МОДЕРАЦИЯ =============
+
+    @Transactional
+    public AdResponse moderateAd(UUID adId, boolean approve) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+
+        if (approve) {
+            ad.setStatus(Ad.AdStatus.ACTIVE);
+        } else {
+            ad.setStatus(Ad.AdStatus.ARCHIVED);
+        }
+
+        ad = adRepository.save(ad);
+        return adMapper.toResponse(ad);
+    }
+
+    // ============= АВТОМАТИЧЕСКАЯ АРХИВАЦИЯ =============
+
+    @Scheduled(cron = "0 */20 * * * *")
+    @Transactional
+    public void archiveExpiredAds() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Ad> expiredAds = adRepository.findByEndTimeBeforeAndStatusNot(now, Ad.AdStatus.ARCHIVED);
+
+        int archivedCount = 0;
+        for (Ad ad : expiredAds) {
+            if (ad.getEndTime().isBefore(now)) {
+                log.info("Архивация объявления id={}, endTime={}, status={}",
+                        ad.getId(), ad.getEndTime(), ad.getStatus());
+                ad.setStatus(Ad.AdStatus.ARCHIVED);
+                archivedCount++;
+            }
+        }
+
+        if (archivedCount > 0) {
+            adRepository.saveAll(expiredAds);
+            log.info("Архивировано {} объявлений", archivedCount);
+        }
+    }
+
+    // ============= ОЧИСТКА СТАРЫХ АРХИВНЫХ ОБЪЯВЛЕНИЙ =============
+
+    @Scheduled(cron = "0 0 3 * * ?")
+    @Transactional
+    public void cleanupOldArchivedAds() {
+        LocalDateTime fiveMonthsAgo = LocalDateTime.now().minusMonths(5);
+
+        long countBefore = adRepository.countByStatus(Ad.AdStatus.ARCHIVED);
+        List<Ad> oldArchivedAds = adRepository.findByStatusAndCreatedAtBefore(
+                Ad.AdStatus.ARCHIVED, fiveMonthsAgo);
+
+        int deletedCount = oldArchivedAds.size();
+
+        if (deletedCount > 0) {
+            log.info("Удаление {} старых архивных объявлений (созданы до {})",
+                    deletedCount, fiveMonthsAgo);
+
+            oldArchivedAds.stream().limit(5).forEach(ad ->
+                    log.debug("Удаляем объявление id={}, createdAt={}, endTime={}",
+                            ad.getId(), ad.getCreatedAt(), ad.getEndTime()));
+
+            adRepository.deleteAll(oldArchivedAds);
+
+            long countAfter = adRepository.countByStatus(Ad.AdStatus.ARCHIVED);
+            log.info("Очистка завершена. Удалено {} объявлений. Осталось архивных: {}",
+                    deletedCount, countAfter);
+        } else {
+            log.debug("Старых архивных объявлений для удаления не найдено");
+        }
+    }
+
+    // ============= СТАТИСТИКА =============
+
+    public AdStatistics getAdStatistics() {
+        return AdStatistics.builder()
+                .totalActive(adRepository.countByStatus(Ad.AdStatus.ACTIVE))
+                .totalModeration(adRepository.countByStatus(Ad.AdStatus.MODERATION))
+                .totalFilled(adRepository.countByStatus(Ad.AdStatus.FILLED))
+                .totalArchived(adRepository.countByStatus(Ad.AdStatus.ARCHIVED))
+                .build();
+    }
+
+    // ============= ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ВАЛИДАЦИИ =============
+
+    private void validateAdRequest(AdRequest request) {
+        if (request.getSubType() == null) {
+            throw new BadRequestException("Подтип объявления (subType) обязателен");
+        }
+
+        switch (request.getType()) {
+            case 1:
+                if (request.getSubType() != 1 && request.getSubType() != 2) {
+                    throw new BadRequestException("Для типа 1 допустимы подтипы 1 (вратарь) или 2 (полевой)");
+                }
+                break;
+            case 2:
+                if (request.getSubType() != 1 && request.getSubType() != 2) {
+                    throw new BadRequestException("Для типа 2 допустимы подтипы 1 (вратарь) или 2 (полевой)");
+                }
+                break;
+            case 3:
+                if (request.getSubType() != 1 && request.getSubType() != 2) {
+                    throw new BadRequestException("Для типа 3 допустимы подтипы 1 (ищу) или 2 (предлагаю)");
+                }
+                break;
+            case 4:
+                if (request.getSubType() < 1 || request.getSubType() > 4) {
+                    throw new BadRequestException("Для типа 4 допустимы подтипы 1-4 (судья, фотограф, медик, тренер)");
+                }
+                break;
+            default:
+                throw new BadRequestException("Неверный тип объявления");
+        }
+
+        if (isSingleRinkType(request.getType(), request.getSubType())) {
+            if (request.getRinkIds() != null && request.getRinkIds().size() > 1) {
+                throw new BadRequestException("Для этого типа объявления можно выбрать только один ЛДС");
+            }
+        }
+
+        if (requiresEndTime(request.getType(), request.getSubType())) {
+            if (request.getEndTime() == null) {
+                throw new BadRequestException("Для этого типа объявления необходимо указать время окончания");
+            }
+            if (request.getStartTime() != null && request.getEndTime().isBefore(request.getStartTime())) {
+                throw new BadRequestException("Время окончания не может быть раньше времени начала");
+            }
+        } else {
+            if (request.getEndTime() != null) {
+                throw new BadRequestException("Для этого типа объявления время окончания не требуется");
+            }
+        }
+
+        if (request.getType() == 1) {
+            if (request.getSubType() == 1) {
+                if (request.getGoaliesCount() == null) {
+                    throw new BadRequestException("Не указано количество вратарей");
+                }
+                if (request.getGoaliesCount() != 1 && request.getGoaliesCount() != 2) {
+                    throw new BadRequestException("Количество вратарей может быть 1 или 2");
+                }
+            } else if (request.getSubType() == 2) {
+                if (request.getDefendersCount() == null || request.getForwardsCount() == null) {
+                    throw new BadRequestException("Не указано количество защитников или нападающих");
+                }
+                if (request.getDefendersCount() < 0 || request.getForwardsCount() < 0) {
+                    throw new BadRequestException("Количество игроков не может быть отрицательным");
+                }
+                if (request.getDefendersCount() + request.getForwardsCount() == 0) {
+                    throw new BadRequestException("Должен быть указан хотя бы один игрок");
+                }
+            }
+        } else {
+            if (request.getGoaliesCount() != null || request.getDefendersCount() != null || request.getForwardsCount() != null) {
+                throw new BadRequestException("Для этого типа объявления количество игроков не указывается");
+            }
+        }
+
+        if (!requiresLevel(request.getType(), request.getSubType())) {
+            if (request.getLevel() != null && !request.getLevel().isEmpty()) {
+                throw new BadRequestException("Для этого типа объявления уровни не указываются");
+            }
+        }
+    }
+
+    private boolean isSingleRinkType(Integer type, Integer subType) {
+        return type == 1 || (type == 3 && subType == 2) || type == 4;
+    }
+
+    private boolean requiresEndTime(Integer type, Integer subType) {
+        return type == 2 || (type == 3 && subType == 1);
+    }
+
+    private boolean requiresLevel(Integer type, Integer subType) {
+        return type != 4;
+    }
+
+    @Value
+    @Builder
+    public static class AdStatistics {
+        long totalActive;
+        long totalModeration;
+        long totalFilled;
+        long totalArchived;
+    }
+}
+
+======================= info/prorabka/varamy/service/AuthService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.request.LoginRequest;
+import info.prorabka.varamy.dto.request.RefreshTokenRequest;
+import info.prorabka.varamy.dto.request.RegisterRequest;
+import info.prorabka.varamy.dto.response.AuthResponse;
+import info.prorabka.varamy.dto.response.UserResponse;
+import info.prorabka.varamy.entity.*;
+import info.prorabka.varamy.exception.BadRequestException;
+import info.prorabka.varamy.exception.UnauthorizedException;
+import info.prorabka.varamy.mapper.UserMapper;
+import info.prorabka.varamy.repository.*;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+public class AuthService {
+
+    private final UserRepository userRepository;
+    private final CityRepository cityRepository;
+    private final CountryRepository countryRepository;
+    private final RegionRepository regionRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtService jwtService;
+    private final UserMapper userMapper;
+
+    @Transactional
+    public AuthResponse register(RegisterRequest request, HttpServletRequest httpRequest) {
+        if (userRepository.existsByPhone(request.getPhone())) {
+            throw new BadRequestException("Пользователь с таким телефоном уже существует");
+        }
+
+        Country country = null;
+        Region region = null;
+        City city = null;
+
+        if (request.getCountryId() != null) {
+            country = countryRepository.findById(request.getCountryId())
+                    .orElseThrow(() -> new BadRequestException("Страна не найдена"));
+        }
+
+        if (request.getRegionId() != null) {
+            region = regionRepository.findById(request.getRegionId())
+                    .orElseThrow(() -> new BadRequestException("Регион не найден"));
+        }
+
+        if (request.getCityId() != null) {
+            city = cityRepository.findById(request.getCityId())
+                    .orElseThrow(() -> new BadRequestException("Город не найден"));
+        }
+
+        User user = new User();
+        user.setPhone(request.getPhone());
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setRole(User.UserRole.USER);
+        user.setSubrole(User.UserSubrole.PLAYER);
+        user.setStatus(User.UserStatus.ACTIVE);
+
+        Profile profile = new Profile();
+        profile.setUser(user);
+        profile.setHomeCountry(country);
+        profile.setHomeRegion(region);
+        profile.setHomeCity(city);
+        user.setProfile(profile);
+
+        user = userRepository.save(user);
+
+        String accessToken = jwtService.generateAccessToken(user);
+        RefreshToken refreshToken = jwtService.generateRefreshToken(
+                user,
+                httpRequest.getHeader("User-Agent"),
+                httpRequest.getRemoteAddr()
+        );
+
+        UserResponse userResponse = userMapper.toResponse(user);
+
+        return new AuthResponse(accessToken, refreshToken.getToken(), userResponse);
+    }
+
+    public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        userRepository.findByPhone(request.getPhone())
+                                .orElseThrow(() -> new UnauthorizedException("Неверный телефон или пароль"))
+                                .getId().toString(),
+                        request.getPassword()
+                )
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        User user = userRepository.findByPhone(request.getPhone())
+                .orElseThrow(() -> new UnauthorizedException("Неверный телефон или пароль"));
+
+        user.setLastLoginAt(java.time.LocalDateTime.now());
+        userRepository.save(user);
+
+        String accessToken = jwtService.generateAccessToken(user);
+        RefreshToken refreshToken = jwtService.generateRefreshToken(
+                user,
+                httpRequest.getHeader("User-Agent"),
+                httpRequest.getRemoteAddr()
+        );
+
+        UserResponse userResponse = userMapper.toResponse(user);
+
+        return new AuthResponse(accessToken, refreshToken.getToken(), userResponse);
+    }
+
+    @Transactional
+    public AuthResponse refresh(String refreshToken, HttpServletRequest httpRequest) {
+        RefreshToken token = jwtService.verifyRefreshToken(refreshToken);
+
+        String accessToken = jwtService.generateAccessToken(token.getUser());
+        RefreshToken newRefreshToken = jwtService.generateRefreshToken(
+                token.getUser(),
+                httpRequest.getHeader("User-Agent"),
+                httpRequest.getRemoteAddr()
+        );
+
+        UserResponse userResponse = userMapper.toResponse(token.getUser());
+
+        return new AuthResponse(accessToken, newRefreshToken.getToken(), userResponse);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        jwtService.deleteRefreshToken(refreshToken);
+    }
+}
+
+======================= info/prorabka/varamy/service/CityService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.response.CityResponse;
+import info.prorabka.varamy.dto.response.CitySimpleResponse;
+import info.prorabka.varamy.entity.City;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.CityMapper;
+import info.prorabka.varamy.repository.CityRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CityService {
+
+    private final CityRepository cityRepository;
+    private final CityMapper cityMapper;
+
+    public List<CityResponse> getCitiesByRegion(Long regionId) {
+        return cityRepository.findByRegionId(regionId).stream()
+                .map(cityMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<CitySimpleResponse> getSimpleCitiesByRegion(Long regionId) {
+        return cityRepository.findByRegionId(regionId).stream()
+                .map(city -> new CitySimpleResponse(city.getId(), city.getName()))
+                .collect(Collectors.toList());
+    }
+
+    public List<CityResponse> getCitiesByCountry(Long countryId) {
+        return cityRepository.findByCountryId(countryId).stream()
+                .map(cityMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<CitySimpleResponse> getSimpleCitiesByCountry(Long countryId) {
+        return cityRepository.findByCountryId(countryId).stream()
+                .map(city -> new CitySimpleResponse(city.getId(), city.getName()))
+                .collect(Collectors.toList());
+    }
+}
+
+======================= info/prorabka/varamy/service/CountryService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.response.CountryResponse;
+import info.prorabka.varamy.dto.response.CountrySimpleResponse;
+import info.prorabka.varamy.entity.Country;
+import info.prorabka.varamy.mapper.CountryMapper;
+import info.prorabka.varamy.repository.CountryRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CountryService {
+
+    private final CountryRepository countryRepository;
+    private final CountryMapper countryMapper;
+
+    public List<CountryResponse> getAllCountries() {
+        return countryRepository.findAll().stream()
+                .map(countryMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<CountrySimpleResponse> getSimpleCountries() {
+        return countryRepository.findAll().stream()
+                .map(country -> new CountrySimpleResponse(
+                        country.getId(),
+                        country.getName(),
+                        country.getCode()))
+                .collect(Collectors.toList());
+    }
+}
+
+======================= info/prorabka/varamy/service/FileStorageService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.exception.BadRequestException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.UUID;
+
+@Slf4j
+@Service
+public class FileStorageService {
+
+    @Value("${file.upload-dir:uploads}")
+    private String uploadDir;
+
+    @Value("${app.base-url:http://localhost:8080}")
+    private String baseUrl;
+
+    public String storeFile(MultipartFile file, String subDir) {
+        try {
+            if (file.isEmpty()) {
+                throw new BadRequestException("Файл пуст");
+            }
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+
+            String filename = UUID.randomUUID() + extension;
+
+            Path uploadPath = Paths.get(uploadDir, subDir);
+            if (!Files.exists(uploadPath)) {
+                Files.createDirectories(uploadPath);
+            }
+
+            Path filePath = uploadPath.resolve(filename);
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+
+            return baseUrl + "/files/" + subDir + "/" + filename;
+
+        } catch (IOException e) {
+            log.error("Ошибка при сохранении файла", e);
+            throw new RuntimeException("Ошибка при сохранении файла", e);
+        }
+    }
+}
+
+======================= info/prorabka/varamy/service/JwtService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.config.JwtConfig;
+import info.prorabka.varamy.entity.RefreshToken;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.repository.RefreshTokenRepository;
+import info.prorabka.varamy.repository.UserRepository;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.security.Key;
+import java.time.Instant;
+import java.util.Date;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class JwtService {
+
+    private final JwtConfig jwtConfig;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final UserRepository userRepository;
+
+    private Key getSigningKey() {
+        return Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes());
+    }
+
+    public String generateAccessToken(User user) {
+        return Jwts.builder()
+                .setSubject(user.getId().toString())
+                .setIssuer(jwtConfig.getIssuer())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + jwtConfig.getAccessTokenExpiration()))
+                .claim("phone", user.getPhone())
+                .claim("role", user.getRole())
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    @Transactional
+    public RefreshToken generateRefreshToken(User user, String userAgent, String ipAddress) {
+        refreshTokenRepository.deleteByUser(user);
+
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        refreshToken.setToken(UUID.randomUUID().toString());
+        refreshToken.setExpiryDate(Instant.now().plusMillis(jwtConfig.getRefreshTokenExpiration()));
+        refreshToken.setUserAgent(userAgent);
+        refreshToken.setIpAddress(ipAddress);
+
+        return refreshTokenRepository.save(refreshToken);
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parserBuilder()
+                    .setSigningKey(getSigningKey())
+                    .build()
+                    .parseClaimsJws(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            log.error("Invalid JWT token: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public String getUserIdFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+
+        return claims.getSubject();
+    }
+
+    @Transactional
+    public RefreshToken verifyRefreshToken(String token) {
+        RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
+                .orElseThrow(() -> new RuntimeException("Refresh token not found"));
+
+        if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
+            refreshTokenRepository.delete(refreshToken);
+            throw new RuntimeException("Refresh token expired");
+        }
+
+        return refreshToken;
+    }
+
+    @Transactional
+    public void deleteRefreshToken(String token) {
+        refreshTokenRepository.findByToken(token)
+                .ifPresent(refreshTokenRepository::delete);
+    }
+}
+
+======================= info/prorabka/varamy/service/ProfileService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.request.ProfileRequest;
+import info.prorabka.varamy.dto.response.ProfileResponse;
+import info.prorabka.varamy.entity.City;
+import info.prorabka.varamy.entity.Country;
+import info.prorabka.varamy.entity.Profile;
+import info.prorabka.varamy.entity.Region;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.ProfileMapper;
+import info.prorabka.varamy.repository.CityRepository;
+import info.prorabka.varamy.repository.CountryRepository;
+import info.prorabka.varamy.repository.ProfileRepository;
+import info.prorabka.varamy.repository.RegionRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class ProfileService {
+
+    private final ProfileRepository profileRepository;
+    private final CountryRepository countryRepository;
+    private final RegionRepository regionRepository;
+    private final CityRepository cityRepository;
+    private final ProfileMapper profileMapper;
+    private final FileStorageService fileStorageService;
+
+    public ProfileResponse getProfileById(UUID id) {
+        Profile profile = profileRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
+        return profileMapper.toResponse(profile);
+    }
+
+    @Transactional
+    public ProfileResponse updateProfile(UUID userId, ProfileRequest request) {
+        Profile profile = profileRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
+
+        if (request.getHomeCountryId() != null) {
+            Country country = countryRepository.findById(request.getHomeCountryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Страна не найдена"));
+            profile.setHomeCountry(country);
+        }
+
+        if (request.getHomeRegionId() != null) {
+            Region region = regionRepository.findById(request.getHomeRegionId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Регион не найден"));
+            profile.setHomeRegion(region);
+        }
+
+        if (request.getHomeCityId() != null) {
+            City city = cityRepository.findById(request.getHomeCityId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Город не найден"));
+            profile.setHomeCity(city);
+        }
+
+        profileMapper.updateProfile(profile, request);
+        profile = profileRepository.save(profile);
+
+        return profileMapper.toResponse(profile);
+    }
+
+    @Transactional
+    public String uploadAvatar(UUID userId, MultipartFile file) {
+        Profile profile = profileRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
+
+        String avatarUrl = fileStorageService.storeFile(file, "avatars");
+        profile.setAvatarUrl(avatarUrl);
+        profileRepository.save(profile);
+
+        return avatarUrl;
+    }
+}
+
+======================= info/prorabka/varamy/service/RegionService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.response.RegionResponse;
+import info.prorabka.varamy.dto.response.RegionSimpleResponse;
+import info.prorabka.varamy.entity.Region;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.RegionMapper;
+import info.prorabka.varamy.repository.RegionRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class RegionService {
+
+    private final RegionRepository regionRepository;
+    private final RegionMapper regionMapper;
+
+    public List<RegionResponse> getRegionsByCountry(Long countryId) {
+        return regionRepository.findByCountryId(countryId).stream()
+                .map(regionMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<RegionSimpleResponse> getSimpleRegionsByCountry(Long countryId) {
+        return regionRepository.findByCountryId(countryId).stream()
+                .map(region -> new RegionSimpleResponse(
+                        region.getId(),
+                        region.getName(),
+                        region.getAutoCode()))
+                .collect(Collectors.toList());
+    }
+}
+
+======================= info/prorabka/varamy/service/ResponseService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.request.ResponseRequest;
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.MyResponseAdResponse;
+import info.prorabka.varamy.dto.response.ResponseResponse;
+import info.prorabka.varamy.entity.Ad;
+import info.prorabka.varamy.entity.Response;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.exception.BadRequestException;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.exception.UnauthorizedException;
+import info.prorabka.varamy.mapper.AdMapper;
+import info.prorabka.varamy.mapper.ResponseMapper;
+import info.prorabka.varamy.repository.AdRepository;
+import info.prorabka.varamy.repository.ResponseRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ResponseService {
+
+    private final ResponseRepository responseRepository;
+    private final AdRepository adRepository;
+    private final ResponseMapper responseMapper;
+    private final UserService userService;
+    private final AdMapper adMapper;
+
+    // ============================== СОЗДАНИЕ ОТКЛИКА ==============================
+
+    @Transactional
+    public ResponseResponse createResponse(UUID adId, UUID userId, ResponseRequest request) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+        User user = userService.getUserById(userId);
+
+        if (ad.getAuthor().getId().equals(userId)) {
+            throw new BadRequestException("Нельзя откликнуться на своё объявление");
+        }
+        if (responseRepository.existsByAdAndUser(ad, user)) {
+            throw new BadRequestException("Вы уже откликнулись на это объявление");
+        }
+        if (ad.getStatus() == Ad.AdStatus.FILLED) {
+            throw new BadRequestException("Это объявление уже заполнено, отклик невозможен");
+        }
+
+        Response response = new Response();
+        response.setAd(ad);
+        response.setUser(user);
+        response.setMessage(request != null ? request.getMessage() : null);
+        response.setResponseRole(request != null ? request.getResponseRole() : null);
+        response.setStatus(Response.ResponseStatus.PENDING);
+
+        response = responseRepository.save(response);
+        return responseMapper.toResponse(response);
+    }
+
+    // ============================== ПОЛУЧЕНИЕ ОТКЛИКОВ ==============================
+
+    @Transactional(readOnly = true)
+    public List<ResponseResponse> getResponsesForAd(UUID adId, UUID userId, boolean isAdmin) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+
+        // Используем метод с JOIN FETCH
+        List<Response> responses = responseRepository.findByAdWithUserAndProfile(ad);
+
+        if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
+            responses = responses.stream()
+                    .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
+                    .collect(Collectors.toList());
+        }
+
+        return responses.stream()
+                .map(responseMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // ============================== ИЗМЕНЕНИЕ СТАТУСА ОТКЛИКА ==============================
+
+    @Transactional
+    public ResponseResponse updateResponseStatus(UUID responseId, UUID userId,
+                                                 Response.ResponseStatus status, boolean isAdmin) {
+        Response response = responseRepository.findById(responseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Отклик не найден"));
+        Ad ad = response.getAd();
+
+        if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
+            throw new UnauthorizedException("Нет прав на изменение статуса этого отклика");
+        }
+
+        if (response.getStatus() == status) {
+            return responseMapper.toResponse(response);
+        }
+
+        // --- ПРИНЯТИЕ ОТКЛИКА (APPROVED) ---
+        if (status == Response.ResponseStatus.APPROVED) {
+            // [ИСПРАВЛЕНИЕ 1] Нельзя принять отклик, если объявление уже заполнено
+            if (ad.getStatus() == Ad.AdStatus.FILLED) {
+                throw new BadRequestException("Нельзя принять отклик на заполненное объявление");
+            }
+
+            // Далее идёт существующая логика проверки лимитов и ролей
+            if (ad.getType() == 1 && ad.getSubType() == 1) { // вратарь
+                if (response.getResponseRole() != Response.ResponseRole.GOALIE) {
+                    throw new BadRequestException("Для этого объявления можно откликаться только вратарём");
+                }
+                if (ad.getAcceptedGoaliesCount() >= ad.getGoaliesCount()) {
+                    throw new BadRequestException("Все места вратарей уже заняты");
+                }
+            } else if (ad.getType() == 1 && ad.getSubType() == 2) { // полевые
+                Response.ResponseRole role = response.getResponseRole();
+                if (role == Response.ResponseRole.DEFENDER) {
+                    if (ad.getAcceptedDefendersCount() >= ad.getDefendersCount()) {
+                        throw new BadRequestException("Все места защитников уже заняты");
+                    }
+                } else if (role == Response.ResponseRole.FORWARD) {
+                    if (ad.getAcceptedForwardsCount() >= ad.getForwardsCount()) {
+                        throw new BadRequestException("Все места нападающих уже заняты");
+                    }
+                } else {
+                    throw new BadRequestException("Для этого объявления можно откликаться только защитником или нападающим");
+                }
+            } else {
+                // Остальные типы (2,3,4)
+                if (ad.getAcceptedResponsesCount() >= 1) {
+                    throw new BadRequestException("На это объявление уже есть принятый отклик");
+                }
+            }
+
+            response.setStatus(Response.ResponseStatus.APPROVED);
+            updateAcceptedCounts(ad, response.getResponseRole(), true);
+            checkAndUpdateAdStatus(ad);
+
+            // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
+        } else if (status == Response.ResponseStatus.PENDING &&
+                response.getStatus() == Response.ResponseStatus.APPROVED) {
+            response.setStatus(Response.ResponseStatus.PENDING);
+            updateAcceptedCounts(ad, response.getResponseRole(), false);
+            checkAndUpdateAdStatus(ad);
+
+            // --- ОТКЛОНЕНИЕ ОТКЛИКА (REJECTED) ---
+        } else if (status == Response.ResponseStatus.REJECTED) {
+            if (response.getStatus() == Response.ResponseStatus.APPROVED) {
+                throw new BadRequestException("Нельзя отклонить принятый отклик, сначала отмените принятие");
+            }
+            response.setStatus(Response.ResponseStatus.REJECTED);
+            // [ИСПРАВЛЕНИЕ 2] Удаляем некорректный блок изменения статуса объявления
+            // (раньше здесь пытались вернуть FILLED -> ACTIVE, что неправильно)
+
+        } else {
+            throw new BadRequestException("Недопустимый статус");
+        }
+
+        response = responseRepository.save(response);
+        return responseMapper.toResponse(response);
+    }
+
+    // ============================== УДАЛЕНИЕ ОТКЛИКА ==============================
+
+    @Transactional
+    public void deleteResponse(UUID responseId, UUID userId, boolean isAdmin) {
+        Response response = responseRepository.findById(responseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Отклик не найден"));
+
+        if (!isAdmin && !response.getUser().getId().equals(userId)) {
+            throw new UnauthorizedException("Нет прав на удаление этого отклика");
+        }
+
+        Ad ad = response.getAd();
+        boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
+        responseRepository.delete(response);
+
+        if (wasApproved) {
+            updateAcceptedCounts(ad, response.getResponseRole(), false);
+            checkAndUpdateAdStatus(ad);
+        }
+    }
+
+    // ============================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==============================
+
+    private void updateAcceptedCounts(Ad ad, Response.ResponseRole role, boolean increment) {
+        int delta = increment ? 1 : -1;
+        if (ad.getType() == 1 && ad.getSubType() == 1) { // вратарь
+            ad.setAcceptedGoaliesCount(ad.getAcceptedGoaliesCount() + delta);
+        } else if (ad.getType() == 1 && ad.getSubType() == 2) { // полевые
+            if (role == Response.ResponseRole.DEFENDER) {
+                ad.setAcceptedDefendersCount(ad.getAcceptedDefendersCount() + delta);
+            } else if (role == Response.ResponseRole.FORWARD) {
+                ad.setAcceptedForwardsCount(ad.getAcceptedForwardsCount() + delta);
+            }
+        } else {
+            // Остальные типы
+            ad.setAcceptedResponsesCount(ad.getAcceptedResponsesCount() + delta);
+        }
+        adRepository.save(ad);
+    }
+
+    private void checkAndUpdateAdStatus(Ad ad) {
+        boolean changed = false;
+        if (ad.getType() == 1 && ad.getSubType() == 1) { // вратарь
+            boolean isFull = ad.getAcceptedGoaliesCount() >= ad.getGoaliesCount();
+            if (isFull && ad.getStatus() != Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.FILLED);
+                changed = true;
+            } else if (!isFull && ad.getStatus() == Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.ACTIVE);
+                changed = true;
+            }
+        } else if (ad.getType() == 1 && ad.getSubType() == 2) { // полевые
+            boolean isFull = ad.getAcceptedDefendersCount() >= ad.getDefendersCount() &&
+                    ad.getAcceptedForwardsCount() >= ad.getForwardsCount();
+            if (isFull && ad.getStatus() != Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.FILLED);
+                changed = true;
+            } else if (!isFull && ad.getStatus() == Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.ACTIVE);
+                changed = true;
+            }
+        } else {
+            // Остальные типы (2,3,4)
+            boolean hasApproved = ad.getAcceptedResponsesCount() >= 1;
+            if (hasApproved && ad.getStatus() != Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.FILLED);
+                changed = true;
+            } else if (!hasApproved && ad.getStatus() == Ad.AdStatus.FILLED) {
+                ad.setStatus(Ad.AdStatus.ACTIVE);
+                changed = true;
+            }
+        }
+        if (changed) {
+            adRepository.save(ad);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Page<MyResponseAdResponse> getMyResponses(UUID userId, Pageable pageable) {
+        // Используем метод репозитория с JOIN FETCH
+        Page<Response> responses = responseRepository.findResponsesByUserIdWithAds(userId, pageable);
+
+        return responses.map(response -> {
+            MyResponseAdResponse dto = new MyResponseAdResponse();
+            dto.setAd(adMapper.toResponse(response.getAd()));
+            dto.setMyResponse(responseMapper.toResponse(response));
+            return dto;
+        });
+    }
+
+
+}
+
+======================= info/prorabka/varamy/service/RinkService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.response.RinkResponse;
+import info.prorabka.varamy.entity.Rink;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.RinkMapper;
+import info.prorabka.varamy.repository.RinkRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class RinkService {
+
+    private final RinkRepository rinkRepository;
+    private final RinkMapper rinkMapper;
+
+    public List<RinkResponse> getRinksByCity(Long cityId) {
+        return rinkRepository.findByCityId(cityId).stream()
+                .map(rinkMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public RinkResponse getRinkById(Long id) {
+        Rink rink = rinkRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("ЛДС не найден с id: " + id));
+        return rinkMapper.toResponse(rink);
+    }
+
+    public List<RinkResponse> searchRinks(String query, Long cityId) {
+        return rinkRepository.search(query, cityId).stream()
+                .map(rinkMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+}
+
+======================= info/prorabka/varamy/service/UserService.java =======================
+package info.prorabka.varamy.service;
+
+import info.prorabka.varamy.dto.request.ChangePasswordRequest;
+import info.prorabka.varamy.dto.response.UserResponse;
+import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.exception.BadRequestException;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.UserMapper;
+import info.prorabka.varamy.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class UserService {
+
+    private final UserRepository userRepository;
+    private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
+
+    public User getUserById(UUID id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден"));
+    }
+
+    public UserResponse getUserResponseById(UUID id) {
+        return userMapper.toResponse(getUserById(id));
+    }
+
+    public User getCurrentUser(UUID userId) {
+        return getUserById(userId);
+    }
+
+    public UserResponse getCurrentUserResponse(UUID userId) {
+        return userMapper.toResponse(getCurrentUser(userId));
+    }
+
+    public Page<UserResponse> getUsers(String phone, User.UserRole role, User.UserStatus status, Pageable pageable) {
+        return userRepository.findWithFilters(phone, role, status, pageable)
+                .map(userMapper::toResponse);
+    }
+
+    @Transactional
+    public UserResponse updateUser(UUID id, String phone, User.UserRole role, User.UserStatus status, String password) {
+        User user = getUserById(id);
+
+        if (phone != null && !phone.equals(user.getPhone())) {
+            if (userRepository.existsByPhone(phone)) {
+                throw new BadRequestException("Телефон уже используется");
+            }
+            user.setPhone(phone);
+        }
+
+        if (role != null) {
+            user.setRole(role);
+        }
+
+        if (status != null) {
+            user.setStatus(status);
+        }
+
+        if (password != null) {
+            user.setPasswordHash(passwordEncoder.encode(password));
+        }
+
+        user = userRepository.save(user);
+        return userMapper.toResponse(user);
+    }
+
+    @Transactional
+    public void deleteUser(UUID id, boolean hardDelete) {
+        User user = getUserById(id);
+
+        if (hardDelete) {
+            userRepository.delete(user);
+        } else {
+            user.setStatus(User.UserStatus.BLOCKED);
+            userRepository.save(user);
+        }
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, ChangePasswordRequest request) {
+        User user = getUserById(userId);
+
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("Неверный старый пароль");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+    }
+
+    @Transactional
+    public void changePhone(UUID userId, String newPhone, String password) {
+        User user = getUserById(userId);
+
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new BadRequestException("Неверный пароль");
+        }
+
+        if (userRepository.existsByPhone(newPhone)) {
+            throw new BadRequestException("Телефон уже используется");
+        }
+
+        user.setPhone(newPhone);
+        userRepository.save(user);
+    }
+}
+
+======================= info/prorabka/varamy/util/Constants.java =======================
+package info.prorabka.varamy.util;
+
+public final class Constants {
+
+    public static final String API_BASE_PATH = "/api";
+
+    private Constants() {}
+}
+
+======================= info/prorabka/varamy/VaramyApplication.java =======================
+package info.prorabka.varamy;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication
+@EnableScheduling
+public class VaramyApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(VaramyApplication.class, args);
+	}
+
+}

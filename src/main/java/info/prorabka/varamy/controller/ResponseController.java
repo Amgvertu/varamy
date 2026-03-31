@@ -8,6 +8,7 @@ import info.prorabka.varamy.entity.Response;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.ResponseService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -32,6 +33,7 @@ public class ResponseController {
     @Operation(summary = "Откликнуться на объявление")
     public ResponseEntity<ApiResponse<ResponseResponse>> createResponse(
             @AuthenticationPrincipal SecurityUser currentUser,
+            @Parameter(description = "UUID объявления", example = "ae286c07-5abf-4f05-be48-7835b8629909")
             @PathVariable UUID adId,
             @RequestBody(required = false) ResponseRequest request) {
         ResponseResponse response = responseService.createResponse(adId, currentUser.getId(), request);
@@ -39,9 +41,11 @@ public class ResponseController {
     }
 
     @GetMapping("/ads/{adId}/responses")
-    @Operation(summary = "Получение откликов на объявление")
+    @Operation(summary = "Получение откликов на объявление",
+            description = "Автор объявления и администратор видят все отклики, остальные — только принятые.")
     public ResponseEntity<ApiResponse<List<ResponseResponse>>> getResponsesForAd(
             @AuthenticationPrincipal SecurityUser currentUser,
+            @Parameter(description = "UUID объявления", example = "ae286c07-5abf-4f05-be48-7835b8629909")
             @PathVariable UUID adId) {
         boolean isAdmin = currentUser.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
@@ -50,10 +54,24 @@ public class ResponseController {
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    @GetMapping("/responses/my")
+    @Operation(summary = "Получение всех объявлений, на которые текущий пользователь откликнулся",
+            description = "Возвращает страницу объявлений с информацией об отклике пользователя.")
+    public ResponseEntity<ApiResponse<Page<MyResponseAdResponse>>> getMyResponses(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<MyResponseAdResponse> responses = responseService.getMyResponses(currentUser.getId(), pageable);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
     @PutMapping("/responses/{responseId}")
+    @Operation(summary = "Изменение статуса отклика",
+            description = "Автор объявления может принять (APPROVED), отменить принятие (PENDING) или отклонить (REJECTED) отклик.")
     public ResponseEntity<ApiResponse<ResponseResponse>> updateResponseStatus(
             @AuthenticationPrincipal SecurityUser currentUser,
+            @Parameter(description = "UUID отклика", example = "123e4567-e89b-12d3-a456-426614174000")
             @PathVariable UUID responseId,
+            @Parameter(description = "Новый статус отклика", example = "APPROVED")
             @RequestParam Response.ResponseStatus status) {
         boolean isAdmin = currentUser.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
@@ -63,23 +81,15 @@ public class ResponseController {
     }
 
     @DeleteMapping("/responses/{responseId}")
-    @Operation(summary = "Удаление отклика")
+    @Operation(summary = "Удаление отклика",
+            description = "Пользователь может удалить свой отклик в любом статусе. Администратор — любой отклик.")
     public ResponseEntity<ApiResponse<Void>> deleteResponse(
             @AuthenticationPrincipal SecurityUser currentUser,
+            @Parameter(description = "UUID отклика", example = "123e4567-e89b-12d3-a456-426614174000")
             @PathVariable UUID responseId) {
         boolean isAdmin = currentUser.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         responseService.deleteResponse(responseId, currentUser.getId(), isAdmin);
         return ResponseEntity.ok(ApiResponse.success("Отклик удалён", null));
-    }
-
-
-    @GetMapping("/responses/my")
-    @Operation(summary = "Получение всех объявлений, на которые текущий пользователь откликнулся")
-    public ResponseEntity<ApiResponse<Page<MyResponseAdResponse>>> getMyResponses(
-        @AuthenticationPrincipal SecurityUser currentUser,
-        @PageableDefault(size = 20) Pageable pageable) {
-        Page<MyResponseAdResponse> responses = responseService.getMyResponses(currentUser.getId(), pageable);
-        return ResponseEntity.ok(ApiResponse.success(responses));
     }
 }
