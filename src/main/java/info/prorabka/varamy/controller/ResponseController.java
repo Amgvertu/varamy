@@ -2,6 +2,7 @@ package info.prorabka.varamy.controller;
 
 import info.prorabka.varamy.dto.request.ResponseRequest;
 import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.MyResponseAdResponse;
 import info.prorabka.varamy.dto.response.ResponseResponse;
 import info.prorabka.varamy.entity.Response;
 import info.prorabka.varamy.security.SecurityUser;
@@ -9,6 +10,9 @@ import info.prorabka.varamy.service.ResponseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -67,5 +71,15 @@ public class ResponseController {
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         responseService.deleteResponse(responseId, currentUser.getId(), isAdmin);
         return ResponseEntity.ok(ApiResponse.success("Отклик удалён", null));
+    }
+
+
+    @GetMapping("/responses/my")
+    @Operation(summary = "Получение всех объявлений, на которые текущий пользователь откликнулся")
+    public ResponseEntity<ApiResponse<Page<MyResponseAdResponse>>> getMyResponses(
+        @AuthenticationPrincipal SecurityUser currentUser,
+        @PageableDefault(size = 20) Pageable pageable) {
+        Page<MyResponseAdResponse> responses = responseService.getMyResponses(currentUser.getId(), pageable);
+        return ResponseEntity.ok(ApiResponse.success(responses));
     }
 }

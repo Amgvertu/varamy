@@ -1,6 +1,8 @@
 package info.prorabka.varamy.service;
 
 import info.prorabka.varamy.dto.request.ResponseRequest;
+import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.MyResponseAdResponse;
 import info.prorabka.varamy.dto.response.ResponseResponse;
 import info.prorabka.varamy.entity.Ad;
 import info.prorabka.varamy.entity.Response;
@@ -8,11 +10,14 @@ import info.prorabka.varamy.entity.User;
 import info.prorabka.varamy.exception.BadRequestException;
 import info.prorabka.varamy.exception.ResourceNotFoundException;
 import info.prorabka.varamy.exception.UnauthorizedException;
+import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.mapper.ResponseMapper;
 import info.prorabka.varamy.repository.AdRepository;
 import info.prorabka.varamy.repository.ResponseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +34,7 @@ public class ResponseService {
     private final AdRepository adRepository;
     private final ResponseMapper responseMapper;
     private final UserService userService;
+    private final AdMapper adMapper;
 
     // ============================== СОЗДАНИЕ ОТКЛИКА ==============================
 
@@ -236,4 +242,25 @@ public class ResponseService {
             adRepository.save(ad);
         }
     }
+
+    @Transactional(readOnly = true)
+    public Page<MyResponseAdResponse> getMyResponses(UUID userId, Pageable pageable) {
+        Page<Response> responses = responseRepository.findResponsesByUserIdWithAds(userId, pageable);
+
+        return responses.map(response -> {
+            MyResponseAdResponse dto = new MyResponseAdResponse();
+
+            // Маппим объявление
+            AdResponse adResponse = adMapper.toResponse(response.getAd());
+            dto.setAd(adResponse);
+
+            // Маппим отклик пользователя
+            ResponseResponse responseResponse = responseMapper.toResponse(response);
+            dto.setMyResponse(responseResponse);
+
+            return dto;
+        });
+    }
+
+
 }
