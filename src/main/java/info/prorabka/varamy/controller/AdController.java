@@ -31,8 +31,8 @@ public class AdController {
 
     @GetMapping
     @Operation(summary = "Получение списка объявлений по городу",
-            description = "Возвращает активные объявления (статус ACTIVE) для указанного города. " +
-                    "Можно фильтровать по типу, подтипу, уровню. Для просмотра объявлений в других статусах используйте админские методы.")
+            description = "Возвращает активные (ACTIVE) и заполненные (FILLED) объявления для указанного города. " +
+                    "Можно фильтровать по типу, подтипу, уровню.")
     public ResponseEntity<ApiResponse<Page<AdResponse>>> getAds(
             @Parameter(description = "ID города", required = true, example = "57")
             @RequestParam(name = "cityId") Long cityId,
@@ -40,23 +40,17 @@ public class AdController {
             @RequestParam(name = "type", required = false) Integer type,
             @Parameter(description = "Подтип объявления", example = "1")
             @RequestParam(name = "subType", required = false) Integer subType,
-            @Parameter(description = "Статус объявления (по умолчанию ACTIVE)", example = "ACTIVE")
-            @RequestParam(name = "status", required = false) Ad.AdStatus status,
             @Parameter(description = "Уровни игроков (список строк A-H)", example = "[\"A\",\"B\"]")
             @RequestParam(name = "level", required = false) List<String> level,
             @PageableDefault(size = 20) Pageable pageable) {
 
-        if (status == null) {
-            status = Ad.AdStatus.ACTIVE;
-        }
-
-        Page<AdResponse> ads = adService.getAds(cityId, type, subType, status, level, null, pageable);
+        Page<AdResponse> ads = adService.getAds(cityId, type, subType, level, pageable);
         return ResponseEntity.ok(ApiResponse.success(ads));
     }
 
     @GetMapping("/all")
     @Operation(summary = "Получение всех активных объявлений (без фильтрации по городу)",
-            description = "Возвращает все объявления со статусом ACTIVE, без привязки к городу.")
+            description = "Возвращает все объявления со статусами ACTIVE и FILLED, без привязки к городу.")
     public ResponseEntity<ApiResponse<Page<AdResponse>>> getAllActiveAds(
             @Parameter(description = "Тип объявления (1-5)", example = "1")
             @RequestParam(name = "type", required = false) Integer type,

@@ -36,20 +36,19 @@ public class AdService {
     private final AdMapper adMapper;
     private final UserService userService;
 
-    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (исключают архивные) =============
+    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
 
     public Page<AdResponse> getAds(Long cityId, Integer type, Integer subType,
-                                   Ad.AdStatus status, List<String> level,
-                                   UUID authorId, Pageable pageable) {
+                                   List<String> level, Pageable pageable) {
         if (cityId == null) {
             throw new BadRequestException("Параметр cityId обязателен");
         }
-        return adRepository.findWithFiltersPublic(cityId, type, subType, status, level, authorId, pageable)
+        return adRepository.findActiveAndFilledAds(cityId, type, subType, level, null, pageable)
                 .map(adMapper::toResponse);
     }
 
     public Page<AdResponse> getAllActiveAds(Integer type, Integer subType, List<String> level, Pageable pageable) {
-        return adRepository.findAllActivePublic(type, subType, level, pageable)
+        return adRepository.findAllActiveAndFilledPublic(type, subType, level, pageable)
                 .map(adMapper::toResponse);
     }
 
@@ -60,13 +59,15 @@ public class AdService {
                 .map(adMapper::toResponse);
     }
 
+    // ============= ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЯ ПО ID =============
+
     public AdResponse getAdById(UUID id) {
         Ad ad = adRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
         return adMapper.toResponse(ad);
     }
 
-    // ============= МЕТОДЫ ДЛЯ АВТОРА (показывают все объявления) =============
+    // ============= МЕТОДЫ ДЛЯ АВТОРА =============
 
     public Page<AdResponse> getMyAds(UUID userId, Pageable pageable) {
         User user = userService.getUserById(userId);
@@ -74,7 +75,7 @@ public class AdService {
                 .map(adMapper::toResponse);
     }
 
-    // ============= АДМИНИСТРАТИВНЫЕ МЕТОДЫ (могут показывать архивные) =============
+    // ============= АДМИНИСТРАТИВНЫЕ МЕТОДЫ =============
 
     public Page<AdResponse> getAdsAdmin(Long cityId, Integer type, Integer subType,
                                         Ad.AdStatus status, List<String> level,
@@ -274,11 +275,6 @@ public class AdService {
         if (deletedCount > 0) {
             log.info("Удаление {} старых архивных объявлений (созданы до {})",
                     deletedCount, fiveMonthsAgo);
-
-            oldArchivedAds.stream().limit(5).forEach(ad ->
-                    log.debug("Удаляем объявление id={}, createdAt={}, endTime={}",
-                            ad.getId(), ad.getCreatedAt(), ad.getEndTime()));
-
             adRepository.deleteAll(oldArchivedAds);
 
             long countAfter = adRepository.countByStatus(Ad.AdStatus.ARCHIVED);

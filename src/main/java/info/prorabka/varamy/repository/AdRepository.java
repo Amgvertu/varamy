@@ -1,3 +1,4 @@
+// AdRepository.java
 package info.prorabka.varamy.repository;
 
 import info.prorabka.varamy.entity.Ad;
@@ -16,31 +17,29 @@ import java.util.UUID;
 @Repository
 public interface AdRepository extends JpaRepository<Ad, UUID> {
 
-    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (исключают ARCHIVED по умолчанию) =============
+    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
 
     @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
-            "a.status != 'ARCHIVED' AND " +
+            "a.status IN ('ACTIVE', 'FILLED') AND " +
             "(:cityId IS NULL OR a.city.id = :cityId) AND " +
             "(:type IS NULL OR a.type = :type) AND " +
             "(:subType IS NULL OR a.subType = :subType) AND " +
-            "(:status IS NULL OR a.status = :status) AND " +
             "(:level IS NULL OR l IN :level) AND " +
             "(:authorId IS NULL OR a.author.id = :authorId)")
-    Page<Ad> findWithFiltersPublic(
+    Page<Ad> findActiveAndFilledAds(
             @Param("cityId") Long cityId,
             @Param("type") Integer type,
             @Param("subType") Integer subType,
-            @Param("status") Ad.AdStatus status,
             @Param("level") List<String> level,
             @Param("authorId") UUID authorId,
             Pageable pageable);
 
     @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
-            "a.status = 'ACTIVE' AND " +
+            "a.status IN ('ACTIVE', 'FILLED') AND " +
             "(:type IS NULL OR a.type = :type) AND " +
             "(:subType IS NULL OR a.subType = :subType) AND " +
             "(:level IS NULL OR l IN :level)")
-    Page<Ad> findAllActivePublic(
+    Page<Ad> findAllActiveAndFilledPublic(
             @Param("type") Integer type,
             @Param("subType") Integer subType,
             @Param("level") List<String> level,
