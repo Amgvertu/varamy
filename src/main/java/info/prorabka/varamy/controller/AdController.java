@@ -3,11 +3,15 @@ package info.prorabka.varamy.controller;
 import info.prorabka.varamy.dto.request.AdRequest;
 import info.prorabka.varamy.dto.response.AdResponse;
 import info.prorabka.varamy.dto.response.ApiResponse;
+import info.prorabka.varamy.dto.response.DuplicateAdResponse;
 import info.prorabka.varamy.entity.Ad;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.AdService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -63,9 +67,53 @@ public class AdController {
         return ResponseEntity.ok(ApiResponse.success(ads));
     }
 
+    // ===================== ПРОВЕРКА НА ДУБЛИРОВАНИЕ =====================
+
+    @PostMapping("/check-duplicate")
+    @Operation(
+            summary = "Проверка объявления на дублирование",
+            description = """
+            Проверяет, существует ли уже объявление с такими же параметрами.
+            
+            **Для каких типов выполняется проверка:**
+            - Тип 1.1 (Поиск вратаря) – проверка по времени (±30 мин), ЛДС, городу
+            - Тип 1.2 (Поиск полевых) – проверка по времени (±30 мин), ЛДС, городу
+            - Тип 3.2 (Предлагаю матч) – проверка по времени (±30 мин), ЛДС, городу
+            - Тип 4.1-4.4 (Специалисты) – проверка по времени (±30 мин), городу
+            
+            **Параметры проверки:**
+            - Тип и подтип объявления
+            - Город
+            - Время начала ± 30 минут
+            - ЛДС (если указан, проверяется совпадение хотя бы одного)
+            
+            **Результат:**
+            - Если дубликатов нет – возвращается пустой список
+            - Если дубликаты найдены – возвращается список с информацией о них
+            
+            **Рекомендация:** Вызывать этот метод перед созданием объявления,
+            чтобы предупредить пользователя о возможном дублировании.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Проверка выполнена"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверные параметры запроса")
+    })
+    public ResponseEntity<ApiResponse<List<DuplicateAdResponse>>> checkDuplicate(
+            @Valid @RequestBody AdRequest request) {
+
+        List<DuplicateAdResponse> duplicates = adService.checkDuplicate(request);
+
+        if (duplicates.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success("Дубликатов не найдено", duplicates));
+        } else {
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Найдено " + duplicates.size() + " похожих объявлений", duplicates));
+        }
+    }
+
     @PostMapping
-    @Operation(summary = "Создание нового объявления",
-            description = "Создаёт объявление со статусом ACTIVE (модерация не требуется).")
+    @Operation(summary = "Создание нового объявления")
     public ResponseEntity<ApiResponse<AdResponse>> createAd(
             @AuthenticationPrincipal SecurityUser currentUser,
             @Valid @RequestBody AdRequest request) {
@@ -74,8 +122,7 @@ public class AdController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Получение объявления по ID",
-            description = "Возвращает объявление независимо от его статуса. Доступно всем пользователям.")
+    @Operation(summary = "Получение объявления по ID")
     public ResponseEntity<ApiResponse<AdResponse>> getAdById(
             @Parameter(description = "UUID объявления", example = "ae286c07-5abf-4f05-be48-7835b8629909")
             @PathVariable UUID id) {
@@ -84,8 +131,7 @@ public class AdController {
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Редактирование объявления",
-            description = "Редактировать может автор или администратор. При редактировании админом статус сбрасывается на MODERATION.")
+    @Operation(summary = "Редактирование объявления")
     public ResponseEntity<ApiResponse<AdResponse>> updateAd(
             @AuthenticationPrincipal SecurityUser currentUser,
             @Parameter(description = "UUID объявления", example = "ae286c07-5abf-4f05-be48-7835b8629909")
@@ -98,8 +144,7 @@ public class AdController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Удаление объявления",
-            description = "Удалить может автор или администратор.")
+    @Operation(summary = "Удаление объявления")
     public ResponseEntity<ApiResponse<Void>> deleteAd(
             @AuthenticationPrincipal SecurityUser currentUser,
             @Parameter(description = "UUID объявления", example = "ae286c07-5abf-4f05-be48-7835b8629909")

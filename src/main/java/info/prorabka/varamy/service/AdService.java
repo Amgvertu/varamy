@@ -2,6 +2,7 @@ package info.prorabka.varamy.service;
 
 import info.prorabka.varamy.dto.request.AdRequest;
 import info.prorabka.varamy.dto.response.AdResponse;
+import info.prorabka.varamy.dto.response.DuplicateAdResponse;
 import info.prorabka.varamy.entity.Ad;
 import info.prorabka.varamy.entity.City;
 import info.prorabka.varamy.entity.Profile;
@@ -12,6 +13,7 @@ import info.prorabka.varamy.exception.UnauthorizedException;
 import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.repository.AdRepository;
 import info.prorabka.varamy.repository.CityRepository;
+import info.prorabka.varamy.repository.RinkRepository;
 import lombok.Builder;
 import lombok.Value;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +23,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import info.prorabka.varamy.entity.Rink;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,6 +38,7 @@ public class AdService {
 
     private final AdRepository adRepository;
     private final CityRepository cityRepository;
+    private final RinkRepository rinkRepository;
     private final AdMapper adMapper;
     private final UserService userService;
 
@@ -287,6 +293,7 @@ public class AdService {
 
     // ============= СТАТИСТИКА =============
 
+    @Builder
     public AdStatistics getAdStatistics() {
         return AdStatistics.builder()
                 .totalActive(adRepository.countByStatus(Ad.AdStatus.ACTIVE))
@@ -379,6 +386,98 @@ public class AdService {
         }
     }
 
+    public List<DuplicateAdResponse> checkDuplicate(AdRequest request) {
+        // Проверяем только определённые типы объявлений
+        if (!shouldCheckDuplicate(request.getType(), request.getSubType())) {
+            return List.of();
+        }
+
+        // Время в секундах для проверки (±30 минут = 1800 секунд)
+        long timeThresholdSeconds = 1800;
+
+        // Преобразуем список ID ЛДС в массив
+        Long[] rinkIdsArray = request.getRinkIds() != null ?
+                request.getRinkIds().toArray(new Long[0]) : null;
+
+        // Ищем дубликаты
+        List<Ad> duplicates = adRepository.findDuplicateAds(
+                request.getType(),
+                request.getSubType(),
+                request.getCityId(),
+                request.getStartTime(),
+                rinkIdsArray,
+                timeThresholdSeconds);
+
+        // Преобразуем в DTO для ответа
+        return duplicates.stream()
+                .map(ad -> {
+                    // Получаем название катка (если есть)
+                    String rinkName = Optional.ofNullable(ad.getRinkIds())
+                            .filter(ids -> ids.length > 0)
+                            .map(ids -> ids[0])
+                            .flatMap(rinkId -> rinkRepository.findById(rinkId))
+                            .map(Rink::getName)
+                            .orElse(null);
+
+                    String filledProgress = "";
+                    if (ad.getType() == 1 && ad.getSubType() == 1) {
+                        filledProgress = ad.getAcceptedGoaliesCount() + "/" + ad.getGoaliesCount() + " вратарей";
+                    } else if (ad.getType() == 1 && ad.getSubType() == 2) {
+                        filledProgress = "З:" + ad.getAcceptedDefendersCount() + "/" + ad.getDefendersCount() +
+                                " Н:" + ad.getAcceptedForwardsCount() + "/" + ad.getForwardsCount();
+                    } else {
+                        filledProgress = ad.getAcceptedResponsesCount() + "/1";
+                    }
+
+                    return DuplicateAdResponse.builder()
+                            .id(ad.getId())
+                            .startTime(ad.getStartTime())
+                            .rinkName(rinkName)
+                            .cityName(ad.getCity().getName())
+                            .status(ad.getStatus().name())
+                            .filledProgress(filledProgress)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Определяет, нужно ли проверять дублирование для данного типа объявления
+     */
+    private boolean shouldCheckDuplicate(Integer type, Integer subType) {
+        // Тип 1.1 (вратарь) и 1.2 (полевой)
+        if (type == 1 && (subType == 1 || subType == 2)) {
+            return true;
+        }
+        // Тип 3.2 (предлагаю матч)
+        if (type == 3 && subType == 2) {
+            return true;
+        }
+        // Тип 4.1-4.4 (специалисты)
+        if (type == 4 && subType >= 1 && subType <= 4) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Создание объявления с проверкой на дублирование
+     */
+    @Transactional
+    public AdResponse createAdWithDuplicateCheck(UUID authorId, AdRequest request) {
+        // Проверяем на дублирование
+        List<DuplicateAdResponse> duplicates = checkDuplicate(request);
+
+        if (!duplicates.isEmpty()) {
+            String message = "Объявление с такими параметрами уже существует. " +
+                    "Найдено " + duplicates.size() + " похожих объявлений.";
+            throw new BadRequestException(message);
+        }
+
+        // Если дубликатов нет, создаём объявление
+        return createAd(authorId, request);
+    }
+
     private boolean isSingleRinkType(Integer type, Integer subType) {
         return type == 1 || (type == 3 && subType == 2) || type == 4;
     }
@@ -390,6 +489,8 @@ public class AdService {
     private boolean requiresLevel(Integer type, Integer subType) {
         return type != 4;
     }
+
+
 
     @Value
     @Builder

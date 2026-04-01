@@ -5,13 +5,16 @@ import info.prorabka.varamy.dto.request.ChangePhoneRequest;
 import info.prorabka.varamy.dto.request.SendVerificationCodeRequest;
 import info.prorabka.varamy.dto.response.ApiResponse;
 import info.prorabka.varamy.dto.response.UserResponse;
-import info.prorabka.varamy.entity.User;
 import info.prorabka.varamy.entity.VerificationCode;
+import info.prorabka.varamy.entity.User;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.UserService;
 import info.prorabka.varamy.service.VerificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +37,8 @@ public class UserController {
     private final UserService userService;
     private final VerificationService verificationService;
 
+    // ===================== ЛИЧНЫЙ КАБИНЕТ =====================
+
     @GetMapping("/me")
     @Operation(summary = "Получение данных текущего пользователя")
     public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(
@@ -51,18 +56,75 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success("Пароль успешно изменён", null));
     }
 
-    @PutMapping("/me/phone")
-    @Operation(summary = "Смена телефона",
-            description = "Для смены телефона требуется подтверждение текущим паролем.")
-    public ResponseEntity<ApiResponse<Void>> changePhone(
+    // ===================== СМЕНА НОМЕРА ТЕЛЕФОНА =====================
+
+    @PostMapping("/me/send-phone-change-code")
+    @Operation(
+            summary = "Отправить код для смены номера телефона",
+            description = """
+            Отправляет SMS с 6-значным кодом подтверждения на НОВЫЙ номер телефона.
+            
+            **Процесс смены телефона:**
+            1. Пользователь вводит новый номер телефона в личном профиле
+            2. Система отправляет SMS с кодом подтверждения на новый номер
+            3. Пользователь вводит полученный код
+            4. Вызов /api/user/me/phone-with-verification для завершения смены
+            
+            **Важно:** Код отправляется на новый номер для подтверждения его доступности.
+            Старый номер остаётся активным до успешного подтверждения нового.
+            Код действителен в течение 5 минут.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Проверка выполнена"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверные параметры запроса")
+    })
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> sendPhoneChangeCode(
             @AuthenticationPrincipal SecurityUser currentUser,
-            @Parameter(description = "Новый номер телефона в формате +7XXXXXXXXXX", example = "+79001234567")
-            @RequestParam(name = "newPhone") String newPhone,
-            @Parameter(description = "Текущий пароль", example = "password")
-            @RequestParam(name = "password") String password) {
-        userService.changePhone(currentUser.getId(), newPhone, password);
+            @Valid @RequestBody SendVerificationCodeRequest request) {
+
+        verificationService.sendVerificationCode(
+                request.getPhone(),
+                VerificationCode.VerificationPurpose.PHONE_CHANGE);
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен на новый номер", null));
+    }
+
+    @PutMapping("/me/phone-with-verification")
+    @Operation(
+            summary = "Смена номера телефона с подтверждением кода",
+            description = """
+            Завершает смену номера телефона после подтверждения.
+            
+            **Шаги:**
+            1. Получить код через /api/user/me/send-phone-change-code
+            2. Вызвать этот метод с новым номером и полученным кодом
+            
+            После успешной смены номер телефона пользователя обновляется.
+            Старый номер становится недоступен, новый используется для входа.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Телефон успешно изменён"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный код подтверждения или номер уже занят"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Пользователь не авторизован")
+    })
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> changePhoneWithVerification(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody ChangePhoneRequest request) {
+
+        verificationService.verifyCode(
+                request.getNewPhone(),
+                request.getCode(),
+                VerificationCode.VerificationPurpose.PHONE_CHANGE);
+
+        userService.changePhone(currentUser.getId(), request.getNewPhone(), null);
+
         return ResponseEntity.ok(ApiResponse.success("Телефон успешно изменён", null));
     }
+
+    // ===================== АДМИНИСТРАТИВНЫЕ МЕТОДЫ =====================
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -118,37 +180,5 @@ public class UserController {
             @RequestParam(name = "hardDelete", defaultValue = "false") boolean hardDelete) {
         userService.deleteUser(id, hardDelete);
         return ResponseEntity.ok(ApiResponse.success("Пользователь удалён", null));
-    }
-
-    @PostMapping("/me/send-phone-change-code")
-    @Operation(summary = "Отправить код для смены телефона")
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<Void>> sendPhoneChangeCode(
-            @AuthenticationPrincipal SecurityUser currentUser,
-            @Valid @RequestBody SendVerificationCodeRequest request) {
-
-        verificationService.sendVerificationCode(
-                request.getPhone(),
-                VerificationCode.VerificationPurpose.PHONE_CHANGE);
-        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен на новый номер", null));
-    }
-
-    @PutMapping("/me/phone-with-verification")
-    @Operation(summary = "Смена телефона с подтверждением кода")
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<Void>> changePhoneWithVerification(
-            @AuthenticationPrincipal SecurityUser currentUser,
-            @Valid @RequestBody ChangePhoneRequest request) {
-
-        // Проверяем код
-        verificationService.verifyCode(
-                request.getNewPhone(),
-                request.getCode(),
-                VerificationCode.VerificationPurpose.PHONE_CHANGE);
-
-        // Меняем телефон (без пароля, так как код подтверждения уже проверен)
-        userService.changePhone(currentUser.getId(), request.getNewPhone(), null);
-
-        return ResponseEntity.ok(ApiResponse.success("Телефон успешно изменён", null));
     }
 }

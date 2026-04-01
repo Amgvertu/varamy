@@ -1,4 +1,3 @@
-// AuthController.java
 package info.prorabka.varamy.controller;
 
 import info.prorabka.varamy.dto.request.*;
@@ -9,6 +8,9 @@ import info.prorabka.varamy.service.AuthService;
 import info.prorabka.varamy.service.UserService;
 import info.prorabka.varamy.service.VerificationService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -25,10 +27,14 @@ public class AuthController {
 
     private final AuthService authService;
     private final VerificationService verificationService;
-    private final UserService userService;  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    private final UserService userService;
 
     @PostMapping("/register")
-    @Operation(summary = "Регистрация нового пользователя")
+    @Operation(summary = "Регистрация нового пользователя (без SMS подтверждения)")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Пользователь успешно зарегистрирован"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверные данные или телефон уже существует")
+    })
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request,
             HttpServletRequest httpRequest) {
@@ -40,6 +46,10 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(summary = "Вход в систему")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Успешный вход"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Неверный телефон или пароль")
+    })
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest) {
@@ -63,47 +73,32 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Выход выполнен успешно", null));
     }
 
-    @PostMapping("/send-registration-code")
-    @Operation(summary = "Отправить код подтверждения для регистрации")
-    public ResponseEntity<ApiResponse<Void>> sendRegistrationCode(
-            @Valid @RequestBody SendVerificationCodeRequest request) {
-        verificationService.sendVerificationCode(
-                request.getPhone(),
-                VerificationCode.VerificationPurpose.REGISTRATION);
-        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", null));
-    }
-
-    @PostMapping("/register-with-verification")
-    @Operation(summary = "Регистрация с подтверждением кода")
-    public ResponseEntity<ApiResponse<AuthResponse>> registerWithVerification(
-            @Valid @RequestBody RegisterWithVerificationRequest request,
-            HttpServletRequest httpRequest) {
-
-        // Проверяем код
-        verificationService.verifyCode(
-                request.getPhone(),
-                request.getCode(),
-                VerificationCode.VerificationPurpose.REGISTRATION);
-
-        // Регистрируем пользователя
-        RegisterRequest registerRequest = new RegisterRequest();
-        registerRequest.setPhone(request.getPhone());
-        registerRequest.setPassword(request.getPassword());
-        registerRequest.setCountryId(request.getCountryId());
-        registerRequest.setRegionId(request.getRegionId());
-        registerRequest.setCityId(request.getCityId());
-
-        AuthResponse response = authService.register(registerRequest, httpRequest);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Пользователь успешно зарегистрирован", response));
-    }
+    // ===================== НАПОМИНАНИЕ ПАРОЛЯ (СБРОС ПАРОЛЯ) =====================
 
     @PostMapping("/send-password-reset-code")
-    @Operation(summary = "Отправить код для сброса пароля")
+    @Operation(
+            summary = "Отправить код для сброса пароля",
+            description = """
+            Отправляет SMS с 6-значным кодом подтверждения на указанный номер телефона.
+            
+            **Процесс сброса пароля:**
+            1. Пользователь вводит номер телефона на странице "Забыли пароль?"
+            2. Система отправляет SMS с кодом подтверждения
+            3. Пользователь вводит полученный код и новый пароль
+            4. Вызов /api/auth/reset-password для завершения смены пароля
+            
+            **Примечание:** В режиме разработки код выводится в логи и push-уведомления.
+            Код действителен в течение 5 минут.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Код подтверждения отправлен"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный формат телефона или пользователь не найден"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Пользователь с таким телефоном не найден")
+    })
     public ResponseEntity<ApiResponse<Void>> sendPasswordResetCode(
             @Valid @RequestBody SendVerificationCodeRequest request) {
 
-        // Проверяем, существует ли пользователь с таким телефоном
         if (!userService.isPhoneExists(request.getPhone())) {
             throw new info.prorabka.varamy.exception.BadRequestException("Пользователь с таким телефоном не найден");
         }
@@ -115,19 +110,103 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    @Operation(summary = "Сброс пароля с подтверждением кода")
+    @Operation(
+            summary = "Сброс пароля с подтверждением кода",
+            description = """
+            Завершает процесс сброса пароля.
+            
+            **Шаги:**
+            1. Получить код через /api/auth/send-password-reset-code
+            2. Вызвать этот метод с кодом и новым паролем
+            
+            После успешного сброса пароль пользователя изменяется.
+            Рекомендуется после сброса пароля выполнить повторный вход.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Пароль успешно изменён"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный код подтверждения или истёк срок действия"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Пользователь не найден")
+    })
     public ResponseEntity<ApiResponse<Void>> resetPassword(
             @Valid @RequestBody ResetPasswordRequest request) {
 
-        // Проверяем код
         verificationService.verifyCode(
                 request.getPhone(),
                 request.getCode(),
                 VerificationCode.VerificationPurpose.PASSWORD_RESET);
 
-        // Сбрасываем пароль
         authService.resetPassword(request.getPhone(), request.getNewPassword());
 
         return ResponseEntity.ok(ApiResponse.success("Пароль успешно изменён", null));
+    }
+
+    // ===================== РЕГИСТРАЦИЯ С SMS ПОДТВЕРЖДЕНИЕМ =====================
+
+    @PostMapping("/send-registration-code")
+    @Operation(
+            summary = "Отправить код подтверждения для регистрации",
+            description = """
+            Отправляет SMS с 6-значным кодом подтверждения на указанный номер телефона.
+            
+            **Процесс регистрации:**
+            1. Пользователь вводит номер телефона на странице регистрации
+            2. Система отправляет SMS с кодом подтверждения
+            3. Пользователь вводит полученный код, пароль и данные профиля
+            4. Вызов /api/auth/register-with-verification для завершения регистрации
+            
+            **Примечание:** Телефон должен быть свободен (не зарегистрирован ранее).
+            Код действителен в течение 5 минут.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Код подтверждения отправлен"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный формат телефона или телефон уже зарегистрирован")
+    })
+    public ResponseEntity<ApiResponse<Void>> sendRegistrationCode(
+            @Valid @RequestBody SendVerificationCodeRequest request) {
+        verificationService.sendVerificationCode(
+                request.getPhone(),
+                VerificationCode.VerificationPurpose.REGISTRATION);
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", null));
+    }
+
+    @PostMapping("/register-with-verification")
+    @Operation(
+            summary = "Регистрация с подтверждением кода",
+            description = """
+            Завершает регистрацию пользователя после подтверждения телефона.
+            
+            **Шаги:**
+            1. Получить код через /api/auth/send-registration-code
+            2. Вызвать этот метод с кодом, паролем и данными профиля
+            
+            После успешной регистрации возвращаются accessToken и refreshToken.
+            Пользователь получает роль USER и подроль PLAYER.
+            """
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Пользователь успешно зарегистрирован"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный код подтверждения или данные")
+    })
+    public ResponseEntity<ApiResponse<AuthResponse>> registerWithVerification(
+            @Valid @RequestBody RegisterWithVerificationRequest request,
+            HttpServletRequest httpRequest) {
+
+        verificationService.verifyCode(
+                request.getPhone(),
+                request.getCode(),
+                VerificationCode.VerificationPurpose.REGISTRATION);
+
+        RegisterRequest registerRequest = new RegisterRequest();
+        registerRequest.setPhone(request.getPhone());
+        registerRequest.setPassword(request.getPassword());
+        registerRequest.setCountryId(request.getCountryId());
+        registerRequest.setRegionId(request.getRegionId());
+        registerRequest.setCityId(request.getCityId());
+
+        AuthResponse response = authService.register(registerRequest, httpRequest);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Пользователь успешно зарегистрирован", response));
     }
 }
