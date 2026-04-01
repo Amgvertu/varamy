@@ -7,6 +7,7 @@ import info.prorabka.varamy.dto.response.AuthResponse;
 import info.prorabka.varamy.dto.response.UserResponse;
 import info.prorabka.varamy.entity.*;
 import info.prorabka.varamy.exception.BadRequestException;
+import info.prorabka.varamy.exception.ResourceNotFoundException;
 import info.prorabka.varamy.exception.UnauthorizedException;
 import info.prorabka.varamy.mapper.UserMapper;
 import info.prorabka.varamy.repository.*;
@@ -135,5 +136,17 @@ public class AuthService {
     @Transactional
     public void logout(String refreshToken) {
         jwtService.deleteRefreshToken(refreshToken);
+    }
+
+    @Transactional
+    public void resetPassword(String phone, String newPassword) {
+        User user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден"));
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        // Опционально: удалить все refresh токены пользователя
+        // refreshTokenRepository.deleteByUser(user);
     }
 }

@@ -47,6 +47,13 @@ logging:
 file:
   upload-dir: ${UPLOAD_DIR:uploads}
 
+sms:
+  mock-mode: true  # true - режим разработки (логирование), false - реальная отправка SMS
+
+verification:
+  code:
+    expiry-minutes: 5  # Время жизни кода подтверждения (минут)
+
 app:
   cors:
     allowed-origins:

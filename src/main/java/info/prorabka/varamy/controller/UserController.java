@@ -1,11 +1,15 @@
 package info.prorabka.varamy.controller;
 
 import info.prorabka.varamy.dto.request.ChangePasswordRequest;
+import info.prorabka.varamy.dto.request.ChangePhoneRequest;
+import info.prorabka.varamy.dto.request.SendVerificationCodeRequest;
 import info.prorabka.varamy.dto.response.ApiResponse;
 import info.prorabka.varamy.dto.response.UserResponse;
 import info.prorabka.varamy.entity.User;
+import info.prorabka.varamy.entity.VerificationCode;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.UserService;
+import info.prorabka.varamy.service.VerificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +32,7 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final VerificationService verificationService;
 
     @GetMapping("/me")
     @Operation(summary = "Получение данных текущего пользователя")
@@ -113,5 +118,37 @@ public class UserController {
             @RequestParam(name = "hardDelete", defaultValue = "false") boolean hardDelete) {
         userService.deleteUser(id, hardDelete);
         return ResponseEntity.ok(ApiResponse.success("Пользователь удалён", null));
+    }
+
+    @PostMapping("/me/send-phone-change-code")
+    @Operation(summary = "Отправить код для смены телефона")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> sendPhoneChangeCode(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody SendVerificationCodeRequest request) {
+
+        verificationService.sendVerificationCode(
+                request.getPhone(),
+                VerificationCode.VerificationPurpose.PHONE_CHANGE);
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен на новый номер", null));
+    }
+
+    @PutMapping("/me/phone-with-verification")
+    @Operation(summary = "Смена телефона с подтверждением кода")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> changePhoneWithVerification(
+            @AuthenticationPrincipal SecurityUser currentUser,
+            @Valid @RequestBody ChangePhoneRequest request) {
+
+        // Проверяем код
+        verificationService.verifyCode(
+                request.getNewPhone(),
+                request.getCode(),
+                VerificationCode.VerificationPurpose.PHONE_CHANGE);
+
+        // Меняем телефон (без пароля, так как код подтверждения уже проверен)
+        userService.changePhone(currentUser.getId(), request.getNewPhone(), null);
+
+        return ResponseEntity.ok(ApiResponse.success("Телефон успешно изменён", null));
     }
 }

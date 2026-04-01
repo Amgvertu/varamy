@@ -101,7 +101,8 @@ public class UserService {
     public void changePhone(UUID userId, String newPhone, String password) {
         User user = getUserById(userId);
 
-        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+        // Если передан пароль, проверяем его
+        if (password != null && !passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new BadRequestException("Неверный пароль");
         }
 
@@ -111,5 +112,9 @@ public class UserService {
 
         user.setPhone(newPhone);
         userRepository.save(user);
+    }
+
+    public boolean isPhoneExists(String phone) {
+        return userRepository.existsByPhone(phone);
     }
 }
