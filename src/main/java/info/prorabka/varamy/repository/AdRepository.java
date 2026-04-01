@@ -101,15 +101,15 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
             "a.subType = :subType AND " +
             "a.city.id = :cityId AND " +
             "a.status IN ('ACTIVE', 'FILLED') AND " +
-            "ABS(EXTRACT(EPOCH FROM (a.startTime - :startTime))) <= :timeThresholdSeconds AND " +
+            "a.startTime BETWEEN :startTimeMinus AND :startTimePlus AND " +
             "(:rinkIds IS NULL OR a.rinkIds IS NOT NULL AND a.rinkIds = :rinkIds)")
     List<Ad> findDuplicateAds(
             @Param("type") Integer type,
             @Param("subType") Integer subType,
             @Param("cityId") Long cityId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("rinkIds") Long[] rinkIds,
-            @Param("timeThresholdSeconds") long timeThresholdSeconds);
+            @Param("startTimeMinus") LocalDateTime startTimeMinus,
+            @Param("startTimePlus") LocalDateTime startTimePlus,
+            @Param("rinkIds") Long[] rinkIds);
 
     long countByStatus(Ad.AdStatus status);
 }

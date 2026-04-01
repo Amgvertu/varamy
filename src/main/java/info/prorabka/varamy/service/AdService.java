@@ -386,32 +386,33 @@ public class AdService {
         }
     }
 
+    // AdService.java
     public List<DuplicateAdResponse> checkDuplicate(AdRequest request) {
-        // Проверяем только определённые типы объявлений
         if (!shouldCheckDuplicate(request.getType(), request.getSubType())) {
             return List.of();
         }
 
-        // Время в секундах для проверки (±30 минут = 1800 секунд)
-        long timeThresholdSeconds = 1800;
+        // Время в минутах для проверки (±30 минут)
+        long timeThresholdMinutes = 30;
+
+        // Вычисляем диапазон времени
+        LocalDateTime startTimeMinus = request.getStartTime().minusMinutes(timeThresholdMinutes);
+        LocalDateTime startTimePlus = request.getStartTime().plusMinutes(timeThresholdMinutes);
 
         // Преобразуем список ID ЛДС в массив
         Long[] rinkIdsArray = request.getRinkIds() != null ?
                 request.getRinkIds().toArray(new Long[0]) : null;
 
-        // Ищем дубликаты
         List<Ad> duplicates = adRepository.findDuplicateAds(
                 request.getType(),
                 request.getSubType(),
                 request.getCityId(),
-                request.getStartTime(),
-                rinkIdsArray,
-                timeThresholdSeconds);
+                startTimeMinus,
+                startTimePlus,
+                rinkIdsArray);
 
-        // Преобразуем в DTO для ответа
         return duplicates.stream()
                 .map(ad -> {
-                    // Получаем название катка (если есть)
                     String rinkName = Optional.ofNullable(ad.getRinkIds())
                             .filter(ids -> ids.length > 0)
                             .map(ids -> ids[0])
