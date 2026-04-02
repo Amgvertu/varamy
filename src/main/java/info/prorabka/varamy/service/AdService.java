@@ -44,17 +44,25 @@ public class AdService {
 
     // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
 
+    // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
+
     public Page<AdResponse> getAds(Long cityId, Integer type, Integer subType,
                                    List<String> level, Pageable pageable) {
         if (cityId == null) {
             throw new BadRequestException("Параметр cityId обязателен");
         }
-        return adRepository.findActiveAndFilledAds(cityId, type, subType, level, null, pageable)
+        return adRepository.findActiveAndFilledAds(
+                        cityId, type, subType,
+                        List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
+                        level, null, pageable)
                 .map(adMapper::toResponse);
     }
 
     public Page<AdResponse> getAllActiveAds(Integer type, Integer subType, List<String> level, Pageable pageable) {
-        return adRepository.findAllActiveAndFilledPublic(type, subType, level, pageable)
+        return adRepository.findAllActiveAndFilledPublic(
+                        type, subType,
+                        List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
+                        level, pageable)
                 .map(adMapper::toResponse);
     }
 
@@ -64,6 +72,7 @@ public class AdService {
                         type, subType, level, pageable)
                 .map(adMapper::toResponse);
     }
+
 
     // ============= ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЯ ПО ID =============
 
@@ -394,25 +403,21 @@ public class AdService {
 
         // Время в минутах для проверки (±30 минут)
         long timeThresholdMinutes = 30;
-
-        // Вычисляем диапазон времени
         LocalDateTime startTimeMinus = request.getStartTime().minusMinutes(timeThresholdMinutes);
         LocalDateTime startTimePlus = request.getStartTime().plusMinutes(timeThresholdMinutes);
 
-        // Преобразуем список ID ЛДС в массив
-        Long[] rinkIdsArray = request.getRinkIds() != null ?
-                request.getRinkIds().toArray(new Long[0]) : null;
-
+        // Ищем дубликаты среди ACTIVE и FILLED
         List<Ad> duplicates = adRepository.findDuplicateAds(
                 request.getType(),
                 request.getSubType(),
                 request.getCityId(),
+                List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
                 startTimeMinus,
-                startTimePlus,
-                rinkIdsArray);
+                startTimePlus);
 
         return duplicates.stream()
                 .map(ad -> {
+                    // Для каждого дубликата получаем название ЛДС (первого в списке)
                     String rinkName = Optional.ofNullable(ad.getRinkIds())
                             .filter(ids -> ids.length > 0)
                             .map(ids -> ids[0])

@@ -1,4 +1,3 @@
-// AdRepository.java
 package info.prorabka.varamy.repository;
 
 import info.prorabka.varamy.entity.Ad;
@@ -20,7 +19,7 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
     // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
 
     @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
-            "a.status IN ('ACTIVE', 'FILLED') AND " +
+            "a.status IN :statuses AND " +
             "(:cityId IS NULL OR a.city.id = :cityId) AND " +
             "(:type IS NULL OR a.type = :type) AND " +
             "(:subType IS NULL OR a.subType = :subType) AND " +
@@ -30,18 +29,20 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
             @Param("cityId") Long cityId,
             @Param("type") Integer type,
             @Param("subType") Integer subType,
+            @Param("statuses") List<Ad.AdStatus> statuses,
             @Param("level") List<String> level,
             @Param("authorId") UUID authorId,
             Pageable pageable);
 
     @Query("SELECT DISTINCT a FROM Ad a LEFT JOIN a.levels l WHERE " +
-            "a.status IN ('ACTIVE', 'FILLED') AND " +
+            "a.status IN :statuses AND " +
             "(:type IS NULL OR a.type = :type) AND " +
             "(:subType IS NULL OR a.subType = :subType) AND " +
             "(:level IS NULL OR l IN :level)")
     Page<Ad> findAllActiveAndFilledPublic(
             @Param("type") Integer type,
             @Param("subType") Integer subType,
+            @Param("statuses") List<Ad.AdStatus> statuses,
             @Param("level") List<String> level,
             Pageable pageable);
 
@@ -75,7 +76,7 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
             @Param("authorId") UUID authorId,
             Pageable pageable);
 
-    // ============= МЕТОДЫ ДЛЯ АВТОРА (показывают все его объявления) =============
+    // ============= МЕТОДЫ ДЛЯ АВТОРА =============
 
     @Query("SELECT a FROM Ad a WHERE a.author = :author ORDER BY a.createdAt DESC")
     Page<Ad> findByAuthor(@Param("author") User author, Pageable pageable);
@@ -96,20 +97,21 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
             @Param("status") Ad.AdStatus status,
             @Param("date") LocalDateTime date);
 
+    long countByStatus(Ad.AdStatus status);
+
+    // ============= ПРОВЕРКА ДУБЛИКАТОВ =============
+
     @Query("SELECT a FROM Ad a WHERE " +
             "a.type = :type AND " +
             "a.subType = :subType AND " +
             "a.city.id = :cityId AND " +
-            "a.status IN ('ACTIVE', 'FILLED') AND " +
-            "a.startTime BETWEEN :startTimeMinus AND :startTimePlus AND " +
-            "(:rinkIds IS NULL OR a.rinkIds IS NOT NULL AND a.rinkIds = :rinkIds)")
+            "a.status IN :statuses AND " +
+            "a.startTime BETWEEN :startTimeMinus AND :startTimePlus")
     List<Ad> findDuplicateAds(
             @Param("type") Integer type,
             @Param("subType") Integer subType,
             @Param("cityId") Long cityId,
+            @Param("statuses") List<Ad.AdStatus> statuses,
             @Param("startTimeMinus") LocalDateTime startTimeMinus,
-            @Param("startTimePlus") LocalDateTime startTimePlus,
-            @Param("rinkIds") Long[] rinkIds);
-
-    long countByStatus(Ad.AdStatus status);
+            @Param("startTimePlus") LocalDateTime startTimePlus);
 }
