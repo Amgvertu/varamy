@@ -1,4 +1,3 @@
-// VerificationService.java
 package info.prorabka.varamy.service;
 
 import info.prorabka.varamy.dto.request.SendVerificationCodeRequest;
@@ -12,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import info.prorabka.varamy.exception.ResourceNotFoundException;
 
 import java.time.LocalDateTime;
 
@@ -28,11 +26,9 @@ public class VerificationService {
     @Value("${verification.code.expiry-minutes:5}")
     private int codeExpiryMinutes;
 
-    /**
-     * Отправка кода подтверждения
-     */
+    // Возвращает сгенерированный код
     @Transactional
-    public void sendVerificationCode(String phone, VerificationCode.VerificationPurpose purpose) {
+    public String sendVerificationCode(String phone, VerificationCode.VerificationPurpose purpose) {
         // Проверка для регистрации: телефон не должен быть занят
         if (purpose == VerificationCode.VerificationPurpose.REGISTRATION) {
             if (userService.isPhoneExists(phone)) {
@@ -65,11 +61,10 @@ public class VerificationService {
 
         // Отправляем SMS
         smsService.sendVerificationCode(phone, code, purpose.name());
+
+        return code;
     }
 
-    /**
-     * Проверка кода подтверждения
-     */
     @Transactional
     public boolean verifyCode(String phone, String code, VerificationCode.VerificationPurpose purpose) {
         VerificationCode verificationCode = verificationCodeRepository
@@ -80,21 +75,17 @@ public class VerificationService {
             throw new BadRequestException("Код подтверждения истёк. Запросите новый код");
         }
 
-        // Помечаем код как использованный
         verificationCode.setUsed(true);
         verificationCodeRepository.save(verificationCode);
 
         return true;
     }
 
-    /**
-     * Очистка просроченных кодов (запуск каждый час)
-     */
     @Scheduled(cron = "0 0 * * * *")
     @Transactional
     public void cleanExpiredCodes() {
         LocalDateTime now = LocalDateTime.now();
-        verificationCodeRepository.deleteExpiredCodes(now);  // ← Убираем присваивание, метод возвращает void
+        verificationCodeRepository.deleteExpiredCodes(now);
         log.info("Очистка просроченных кодов подтверждения выполнена");
     }
 }

@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -26,6 +27,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -36,6 +39,9 @@ public class UserController {
 
     private final UserService userService;
     private final VerificationService verificationService;
+
+    @Value("${sms.mock-mode:true}")
+    private boolean mockMode;
 
     // ===================== ЛИЧНЫЙ КАБИНЕТ =====================
 
@@ -63,31 +69,29 @@ public class UserController {
             summary = "Отправить код для смены номера телефона",
             description = """
             Отправляет SMS с 6-значным кодом подтверждения на НОВЫЙ номер телефона.
-            
-            **Процесс смены телефона:**
-            1. Пользователь вводит новый номер телефона в личном профиле
-            2. Система отправляет SMS с кодом подтверждения на новый номер
-            3. Пользователь вводит полученный код
-            4. Вызов /api/user/me/phone-with-verification для завершения смены
-            
-            **Важно:** Код отправляется на новый номер для подтверждения его доступности.
-            Старый номер остаётся активным до успешного подтверждения нового.
-            Код действителен в течение 5 минут.
+            В режиме разработки (sms.mock-mode=true) код также возвращается в поле data.code.
             """
     )
     @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Проверка выполнена"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверные параметры запроса")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Код подтверждения отправлен"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный формат телефона или номер уже занят")
     })
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<Void>> sendPhoneChangeCode(
+    public ResponseEntity<ApiResponse<Map<String, String>>> sendPhoneChangeCode(
             @AuthenticationPrincipal SecurityUser currentUser,
             @Valid @RequestBody SendVerificationCodeRequest request) {
 
-        verificationService.sendVerificationCode(
+        String code = verificationService.sendVerificationCode(
                 request.getPhone(),
                 VerificationCode.VerificationPurpose.PHONE_CHANGE);
-        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен на новый номер", null));
+
+        Map<String, String> data = null;
+        if (mockMode) {
+            data = new HashMap<>();
+            data.put("code", code);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен на новый номер", data));
     }
 
     @PutMapping("/me/phone-with-verification")
@@ -95,13 +99,6 @@ public class UserController {
             summary = "Смена номера телефона с подтверждением кода",
             description = """
             Завершает смену номера телефона после подтверждения.
-            
-            **Шаги:**
-            1. Получить код через /api/user/me/send-phone-change-code
-            2. Вызвать этот метод с новым номером и полученным кодом
-            
-            После успешной смены номер телефона пользователя обновляется.
-            Старый номер становится недоступен, новый используется для входа.
             """
     )
     @ApiResponses(value = {

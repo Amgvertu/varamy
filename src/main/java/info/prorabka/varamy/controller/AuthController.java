@@ -15,9 +15,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -28,6 +32,9 @@ public class AuthController {
     private final AuthService authService;
     private final VerificationService verificationService;
     private final UserService userService;
+
+    @Value("${sms.mock-mode:true}")
+    private boolean mockMode;
 
     @PostMapping("/register")
     @Operation(summary = "Регистрация нового пользователя (без SMS подтверждения)")
@@ -80,15 +87,7 @@ public class AuthController {
             summary = "Отправить код для сброса пароля",
             description = """
             Отправляет SMS с 6-значным кодом подтверждения на указанный номер телефона.
-            
-            **Процесс сброса пароля:**
-            1. Пользователь вводит номер телефона на странице "Забыли пароль?"
-            2. Система отправляет SMS с кодом подтверждения
-            3. Пользователь вводит полученный код и новый пароль
-            4. Вызов /api/auth/reset-password для завершения смены пароля
-            
-            **Примечание:** В режиме разработки код выводится в логи и push-уведомления.
-            Код действителен в течение 5 минут.
+            В режиме разработки (sms.mock-mode=true) код также возвращается в поле data.code.
             """
     )
     @ApiResponses(value = {
@@ -96,17 +95,24 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный формат телефона или пользователь не найден"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Пользователь с таким телефоном не найден")
     })
-    public ResponseEntity<ApiResponse<Void>> sendPasswordResetCode(
+    public ResponseEntity<ApiResponse<Map<String, String>>> sendPasswordResetCode(
             @Valid @RequestBody SendVerificationCodeRequest request) {
 
         if (!userService.isPhoneExists(request.getPhone())) {
             throw new info.prorabka.varamy.exception.BadRequestException("Пользователь с таким телефоном не найден");
         }
 
-        verificationService.sendVerificationCode(
+        String code = verificationService.sendVerificationCode(
                 request.getPhone(),
                 VerificationCode.VerificationPurpose.PASSWORD_RESET);
-        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", null));
+
+        Map<String, String> data = null;
+        if (mockMode) {
+            data = new HashMap<>();
+            data.put("code", code);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", data));
     }
 
     @PostMapping("/reset-password")
@@ -114,13 +120,6 @@ public class AuthController {
             summary = "Сброс пароля с подтверждением кода",
             description = """
             Завершает процесс сброса пароля.
-            
-            **Шаги:**
-            1. Получить код через /api/auth/send-password-reset-code
-            2. Вызвать этот метод с кодом и новым паролем
-            
-            После успешного сброса пароль пользователя изменяется.
-            Рекомендуется после сброса пароля выполнить повторный вход.
             """
     )
     @ApiResponses(value = {
@@ -148,27 +147,27 @@ public class AuthController {
             summary = "Отправить код подтверждения для регистрации",
             description = """
             Отправляет SMS с 6-значным кодом подтверждения на указанный номер телефона.
-            
-            **Процесс регистрации:**
-            1. Пользователь вводит номер телефона на странице регистрации
-            2. Система отправляет SMS с кодом подтверждения
-            3. Пользователь вводит полученный код, пароль и данные профиля
-            4. Вызов /api/auth/register-with-verification для завершения регистрации
-            
-            **Примечание:** Телефон должен быть свободен (не зарегистрирован ранее).
-            Код действителен в течение 5 минут.
+            В режиме разработки (sms.mock-mode=true) код также возвращается в поле data.code.
             """
     )
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Код подтверждения отправлен"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Неверный формат телефона или телефон уже зарегистрирован")
     })
-    public ResponseEntity<ApiResponse<Void>> sendRegistrationCode(
+    public ResponseEntity<ApiResponse<Map<String, String>>> sendRegistrationCode(
             @Valid @RequestBody SendVerificationCodeRequest request) {
-        verificationService.sendVerificationCode(
+
+        String code = verificationService.sendVerificationCode(
                 request.getPhone(),
                 VerificationCode.VerificationPurpose.REGISTRATION);
-        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", null));
+
+        Map<String, String> data = null;
+        if (mockMode) {
+            data = new HashMap<>();
+            data.put("code", code);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Код подтверждения отправлен", data));
     }
 
     @PostMapping("/register-with-verification")
@@ -176,13 +175,6 @@ public class AuthController {
             summary = "Регистрация с подтверждением кода",
             description = """
             Завершает регистрацию пользователя после подтверждения телефона.
-            
-            **Шаги:**
-            1. Получить код через /api/auth/send-registration-code
-            2. Вызвать этот метод с кодом, паролем и данными профиля
-            
-            После успешной регистрации возвращаются accessToken и refreshToken.
-            Пользователь получает роль USER и подроль PLAYER.
             """
     )
     @ApiResponses(value = {
