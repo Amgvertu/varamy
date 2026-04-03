@@ -82,4 +82,19 @@ public class ProfileService {
 
         return avatarUrl;
     }
+
+    @Transactional
+    public void deleteAvatar(UUID userId) {
+        Profile profile = profileRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
+
+        String avatarUrl = profile.getAvatarUrl();
+        if (avatarUrl != null && !avatarUrl.isEmpty()) {
+            fileStorageService.deleteFile(avatarUrl);
+            profile.setAvatarUrl(null);
+            profileRepository.save(profile);
+        } else {
+            throw new ResourceNotFoundException("Аватар не найден");
+        }
+    }
 }

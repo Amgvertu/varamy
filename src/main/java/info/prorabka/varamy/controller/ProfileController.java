@@ -6,6 +6,7 @@ import info.prorabka.varamy.dto.response.ProfileResponse;
 import info.prorabka.varamy.security.SecurityUser;
 import info.prorabka.varamy.service.ProfileService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -60,5 +61,19 @@ public class ProfileController {
             @RequestParam(name = "file") MultipartFile file) {
         String avatarUrl = profileService.uploadAvatar(currentUser.getId(), file);
         return ResponseEntity.ok(ApiResponse.success("Аватар загружен", avatarUrl));
+    }
+
+    @DeleteMapping("/me/avatar")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Удаление аватара текущего пользователя")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Аватар удалён"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Не авторизован"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Аватар не найден")
+    })
+    public ResponseEntity<ApiResponse<Void>> deleteAvatar(
+            @AuthenticationPrincipal SecurityUser currentUser) {
+        profileService.deleteAvatar(currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success("Аватар удалён", null));
     }
 }
