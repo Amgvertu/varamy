@@ -70,6 +70,12 @@ public class ProfileService {
         Profile profile = profileRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
 
+        // Удаляем старый аватар, если он есть
+        String oldAvatarUrl = profile.getAvatarUrl();
+        if (oldAvatarUrl != null && !oldAvatarUrl.isEmpty()) {
+            fileStorageService.deleteFile(oldAvatarUrl);
+        }
+
         String avatarUrl = fileStorageService.storeFile(file, "avatars");
         profile.setAvatarUrl(avatarUrl);
         profileRepository.save(profile);

@@ -45,7 +45,7 @@ logging:
     org.springframework.transaction: DEBUG
 
 file:
-  upload-dir: ${UPLOAD_DIR:uploads}
+  upload-dir: uploads   # абсолютный путь на сервере
 
 sms:
   mock-mode: true  # true - режим разработки (логирование), false - реальная отправка SMS
@@ -86,6 +86,7 @@ app:
     cleanup:
       archive-months: 5  # Количество месяцев хранения архивных объявлений
       archive-cron: "0 0 3 * * ?"  # Ежедневно в 3 часа ночи
+  base-url: https://92.125.255.63/api2   # внешний URL с префиксом /api2
 
 springdoc:
   api-docs:

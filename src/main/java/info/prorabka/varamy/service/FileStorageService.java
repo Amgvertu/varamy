@@ -52,4 +52,35 @@ public class FileStorageService {
             throw new RuntimeException("Ошибка при сохранении файла", e);
         }
     }
+
+    /**
+     * Удаляет файл по его публичному URL.
+     * @param fileUrl полный URL файла (например, https://92.125.255.63/api2/files/avatars/uuid.jpg)
+     */
+    public void deleteFile(String fileUrl) {
+        if (fileUrl == null || fileUrl.isEmpty()) {
+            return;
+        }
+        try {
+            // Ищем маркер "/files/" в URL
+            int filesIndex = fileUrl.indexOf("/files/");
+            if (filesIndex == -1) {
+                log.warn("Невозможно удалить файл: URL не содержит '/files/': {}", fileUrl);
+                return;
+            }
+            // Извлекаем относительный путь после "/files/"
+            String relativePath = fileUrl.substring(filesIndex + 7); // 7 = длина "/files/"
+            // Формируем полный путь к файлу на диске
+            Path filePath = Paths.get(uploadDir).resolve(relativePath);
+
+            if (Files.exists(filePath)) {
+                Files.delete(filePath);
+                log.info("Удалён старый аватар: {}", filePath);
+            } else {
+                log.debug("Файл для удаления не найден: {}", filePath);
+            }
+        } catch (IOException e) {
+            log.warn("Ошибка при удалении файла: {}", e.getMessage());
+        }
+    }
 }
