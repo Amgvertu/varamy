@@ -6,6 +6,7 @@ import info.prorabka.varamy.entity.City;
 import info.prorabka.varamy.entity.Country;
 import info.prorabka.varamy.entity.Profile;
 import info.prorabka.varamy.entity.Region;
+import info.prorabka.varamy.exception.BadRequestException;
 import info.prorabka.varamy.exception.ResourceNotFoundException;
 import info.prorabka.varamy.mapper.ProfileMapper;
 import info.prorabka.varamy.repository.CityRepository;
@@ -29,6 +30,7 @@ public class ProfileService {
     private final CityRepository cityRepository;
     private final ProfileMapper profileMapper;
     private final FileStorageService fileStorageService;
+    private static final long MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
 
     public ProfileResponse getProfileById(UUID id) {
         Profile profile = profileRepository.findById(id)
@@ -69,6 +71,10 @@ public class ProfileService {
     public String uploadAvatar(UUID userId, MultipartFile file) {
         Profile profile = profileRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Профиль не найден"));
+        // Проверка размера
+        if (file.getSize() > MAX_AVATAR_SIZE) {
+            throw new BadRequestException("Размер аватара не должен превышать 5 МБ");
+        }
 
         // Удаляем старый аватар, если он есть
         String oldAvatarUrl = profile.getAvatarUrl();

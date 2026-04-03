@@ -8,6 +8,11 @@ spring:
     password: ${DB_PASSWORD:vara}
     driver-class-name: org.postgresql.Driver
 
+  servlet:
+    multipart:
+      max-file-size: 5MB      # максимальный размер одного файла
+      max-request-size: 5MB   # общий размер всего запроса (включая другие поля)
+
   jpa:
     hibernate:
       ddl-auto: update
