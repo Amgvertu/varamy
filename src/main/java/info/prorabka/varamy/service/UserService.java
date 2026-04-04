@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -116,5 +117,10 @@ public class UserService {
 
     public boolean isPhoneExists(String phone) {
         return userRepository.existsByPhone(phone);
+    }
+
+    // UserService.java
+    public List<User> findUsersForNewAdNotification(Long cityId, Integer type, Integer subType) {
+        return userRepository.findUsersForNewAdNotification(cityId, type, subType);
     }
 }

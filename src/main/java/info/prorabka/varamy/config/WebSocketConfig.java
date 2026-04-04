@@ -12,18 +12,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Эндпоинт, к которому будет подключаться клиент
-        // .withSockJS() нужен для поддержки fallback-опций в браузерах
-        registry.addEndpoint("/ws").setAllowedOrigins("*").withSockJS();
+        registry.addEndpoint("/ws")
+                .setAllowedOrigins("*")
+                .withSockJS();
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Префикс для каналов, на которые клиент будет подписываться
         registry.enableSimpleBroker("/topic", "/queue");
-        // Префикс для запросов от клиента к серверу
         registry.setApplicationDestinationPrefixes("/app");
-        // Префикс для личных уведомлений
         registry.setUserDestinationPrefix("/user");
     }
 }

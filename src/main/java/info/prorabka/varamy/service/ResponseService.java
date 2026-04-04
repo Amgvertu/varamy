@@ -1,7 +1,6 @@
 package info.prorabka.varamy.service;
 
 import info.prorabka.varamy.dto.request.ResponseRequest;
-import info.prorabka.varamy.dto.response.AdResponse;
 import info.prorabka.varamy.dto.response.MyResponseAdResponse;
 import info.prorabka.varamy.dto.response.ResponseResponse;
 import info.prorabka.varamy.entity.Ad;
@@ -34,6 +33,7 @@ public class ResponseService {
     private final AdRepository adRepository;
     private final ResponseMapper responseMapper;
     private final UserService userService;
+    private final NotificationService notificationService;
     private final AdMapper adMapper;
 
     // ============================== СОЗДАНИЕ ОТКЛИКА ==============================
@@ -62,6 +62,14 @@ public class ResponseService {
         response.setStatus(Response.ResponseStatus.PENDING);
 
         response = responseRepository.save(response);
+        log.info("Создан отклик {} от пользователя {} на объявление {}", response.getId(), userId, adId);
+
+        // Отправляем уведомление автору объявления, если включена настройка
+        String responderName = (user.getProfile() != null && user.getProfile().getFirstName() != null)
+                ? user.getProfile().getFirstName()
+                : user.getPhone();
+        notificationService.onResponseCreated(ad.getAuthor().getId(), adId, response.getId(), responderName);
+
         return responseMapper.toResponse(response);
     }
 
@@ -72,7 +80,6 @@ public class ResponseService {
         Ad ad = adRepository.findById(adId)
                 .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
 
-        // Используем метод с JOIN FETCH
         List<Response> responses = responseRepository.findByAdWithUserAndProfile(ad);
 
         if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
@@ -105,12 +112,11 @@ public class ResponseService {
 
         // --- ПРИНЯТИЕ ОТКЛИКА (APPROVED) ---
         if (status == Response.ResponseStatus.APPROVED) {
-            // [ИСПРАВЛЕНИЕ 1] Нельзя принять отклик, если объявление уже заполнено
             if (ad.getStatus() == Ad.AdStatus.FILLED) {
                 throw new BadRequestException("Нельзя принять отклик на заполненное объявление");
             }
 
-            // Далее идёт существующая логика проверки лимитов и ролей
+            // Проверка лимитов и ролей
             if (ad.getType() == 1 && ad.getSubType() == 1) { // вратарь
                 if (response.getResponseRole() != Response.ResponseRole.GOALIE) {
                     throw new BadRequestException("Для этого объявления можно откликаться только вратарём");
@@ -141,6 +147,11 @@ public class ResponseService {
             response.setStatus(Response.ResponseStatus.APPROVED);
             updateAcceptedCounts(ad, response.getResponseRole(), true);
             checkAndUpdateAdStatus(ad);
+            adRepository.save(ad);
+
+            // Отправляем уведомление пользователю, чей отклик принят
+            String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+            notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
 
             // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
         } else if (status == Response.ResponseStatus.PENDING &&
@@ -148,6 +159,7 @@ public class ResponseService {
             response.setStatus(Response.ResponseStatus.PENDING);
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
+            adRepository.save(ad);
 
             // --- ОТКЛОНЕНИЕ ОТКЛИКА (REJECTED) ---
         } else if (status == Response.ResponseStatus.REJECTED) {
@@ -155,14 +167,14 @@ public class ResponseService {
                 throw new BadRequestException("Нельзя отклонить принятый отклик, сначала отмените принятие");
             }
             response.setStatus(Response.ResponseStatus.REJECTED);
-            // [ИСПРАВЛЕНИЕ 2] Удаляем некорректный блок изменения статуса объявления
-            // (раньше здесь пытались вернуть FILLED -> ACTIVE, что неправильно)
+            // Статус объявления не меняем при отклонении
 
         } else {
             throw new BadRequestException("Недопустимый статус");
         }
 
         response = responseRepository.save(response);
+        log.info("Статус отклика {} изменён на {}", responseId, status);
         return responseMapper.toResponse(response);
     }
 
@@ -184,7 +196,9 @@ public class ResponseService {
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
+            adRepository.save(ad);
         }
+        log.info("Удалён отклик {} пользователем {}", responseId, userId);
     }
 
     // ============================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==============================
@@ -203,7 +217,6 @@ public class ResponseService {
             // Остальные типы
             ad.setAcceptedResponsesCount(ad.getAcceptedResponsesCount() + delta);
         }
-        adRepository.save(ad);
     }
 
     private void checkAndUpdateAdStatus(Ad ad) {
@@ -239,15 +252,14 @@ public class ResponseService {
             }
         }
         if (changed) {
-            adRepository.save(ad);
+            log.info("Статус объявления {} изменён на {}", ad.getId(), ad.getStatus());
         }
     }
 
+    // ResponseService.java
     @Transactional(readOnly = true)
     public Page<MyResponseAdResponse> getMyResponses(UUID userId, Pageable pageable) {
-        // Используем метод репозитория с JOIN FETCH
         Page<Response> responses = responseRepository.findResponsesByUserIdWithAds(userId, pageable);
-
         return responses.map(response -> {
             MyResponseAdResponse dto = new MyResponseAdResponse();
             dto.setAd(adMapper.toResponse(response.getAd()));
@@ -255,6 +267,4 @@ public class ResponseService {
             return dto;
         });
     }
-
-
 }

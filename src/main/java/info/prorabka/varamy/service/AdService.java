@@ -14,6 +14,7 @@ import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.repository.AdRepository;
 import info.prorabka.varamy.repository.CityRepository;
 import info.prorabka.varamy.repository.RinkRepository;
+import info.prorabka.varamy.service.NotificationService;
 import lombok.Builder;
 import lombok.Value;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class AdService {
     private final RinkRepository rinkRepository;
     private final AdMapper adMapper;
     private final UserService userService;
+    private final NotificationService notificationService;
 
     // ============= ПУБЛИЧНЫЕ МЕТОДЫ (ACTIVE и FILLED) =============
 
@@ -163,6 +165,7 @@ public class AdService {
         }
 
         ad = adRepository.save(ad);
+        notificationService.onNewAdCreated(ad);
         return adMapper.toResponse(ad);
     }
 

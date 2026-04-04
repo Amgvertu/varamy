@@ -45,4 +45,6 @@ public interface ResponseRepository extends JpaRepository<Response, UUID> {
             "WHERE r.user.id = :userId " +
             "ORDER BY r.createdAt DESC")
     Page<Response> findResponsesByUserIdWithAds(@Param("userId") UUID userId, Pageable pageable);
+
+    
 }
