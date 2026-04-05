@@ -59,6 +59,7 @@ public class NotificationService {
 
     @Transactional
     public NotificationSettingsResponse updateSettings(UUID userId, UpdateNotificationSettingsRequest request) {
+        log.debug("Updating settings for user: {}", userId);
         NotificationSettings settings = settingsRepository.findByUserId(userId)
                 .orElseGet(() -> createDefaultSettings(userId));
 
@@ -84,14 +85,17 @@ public class NotificationService {
     }
 
     private NotificationSettings createDefaultSettings(UUID userId) {
-        User user = userService.getUserById(userId);
+        if (userId == null) {
+            throw new IllegalArgumentException("userId cannot be null");
+        }
         NotificationSettings settings = new NotificationSettings();
         settings.setUserId(userId);
-        settings.setUser(user);
         settings.setNotifyOnResponseToMyAd(true);
         settings.setNotifyOnMyResponseAccepted(true);
         settings.setNotifyNewAdsInCity(false);
         settings.setNotificationCity(null);
+        settings.setUpdatedAt(LocalDateTime.now());
+        log.debug("Creating new settings for user: {}", userId);
         return settingsRepository.save(settings);
     }
 

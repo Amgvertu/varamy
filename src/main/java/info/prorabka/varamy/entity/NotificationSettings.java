@@ -16,12 +16,11 @@ import java.util.UUID;
 public class NotificationSettings {
 
     @Id
-    @Column(name = "user_id", columnDefinition = "uuid")
+    @Column(name = "user_id", columnDefinition = "uuid", nullable = false)
     private UUID userId;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @MapsId
-    @JoinColumn(name = "user_id")
+    @JoinColumn(name = "user_id", insertable = false, updatable = false)
     private User user;
 
     @Column(name = "notify_on_response_to_my_ad", nullable = false)
@@ -35,7 +34,7 @@ public class NotificationSettings {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "notification_city_id")
-    private City notificationCity;  // если null, используется home_city из профиля
+    private City notificationCity;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
