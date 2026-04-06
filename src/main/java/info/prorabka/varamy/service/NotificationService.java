@@ -134,10 +134,20 @@ public class NotificationService {
         notification.setCreatedAt(LocalDateTime.now());
         notification = notificationRepository.save(notification);
 
-        // Отправляем через WebSocket лично пользователю
-        NotificationResponse dto = toResponse(notification);
-        messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/notifications", dto);
-        log.info("Отправлено уведомление пользователю {}: {}", userId, content);
+        NotificationResponse notificationResponse = toResponse(notification);
+
+        try {
+
+            messagingTemplate.convertAndSendToUser(
+                    userId.toString(),
+                    "/queue/notifications",
+                    notificationResponse
+            );
+            messagingTemplate.convertAndSend("/topic/notifications", notificationResponse);
+            log.info("WebSocket message sent to user {}", userId);
+        } catch (Exception e) {
+            log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage());
+        }
     }
 
     private NotificationResponse toResponse(Notification n) {
@@ -213,4 +223,6 @@ public class NotificationService {
             createAndSendNotification(user.getId(), "NEW_AD", content, newAd.getId());
         }
     }
+
+
 }

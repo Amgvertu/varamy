@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/notifications")
 @RequiredArgsConstructor
@@ -29,6 +31,7 @@ public class NotificationController {
     private final NotificationService notificationService;
 
     // ========== НАСТРОЙКИ ==========
+
     @GetMapping("/settings")
     @Operation(summary = "Получить настройки уведомлений текущего пользователя")
     public ResponseEntity<ApiResponse<NotificationSettingsResponse>> getSettings(
@@ -45,6 +48,7 @@ public class NotificationController {
     }
 
     // ========== ПОДПИСКИ ==========
+
     @PostMapping("/subscriptions")
     @Operation(summary = "Добавить подписку на тип/подтип объявления")
     public ResponseEntity<ApiResponse<Void>> addSubscription(
@@ -65,6 +69,7 @@ public class NotificationController {
     }
 
     // ========== ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ ==========
+
     @GetMapping
     @Operation(summary = "Получить список уведомлений (с пагинацией)")
     public ResponseEntity<ApiResponse<Page<NotificationResponse>>> getNotifications(
