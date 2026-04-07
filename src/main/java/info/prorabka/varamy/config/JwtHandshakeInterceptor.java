@@ -11,6 +11,7 @@ import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
+import java.security.Principal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -21,21 +22,27 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtService jwtService;
     private final UserService userService;
 
+
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
         if (request instanceof ServletServerHttpRequest servletRequest) {
             String token = servletRequest.getServletRequest().getParameter("token");
-            log.debug("WebSocket handshake, token present: {}", token != null);
-
+            System.out.println("=== JwtHandshakeInterceptor called, token present: " + (token != null));
+            log.info("=== JwtHandshakeInterceptor called, token present: {}", token != null);
             if (token != null && jwtService.validateToken(token)) {
-                String userId = jwtService.getUserIdFromToken(token);
-                User user = userService.getUserById(UUID.fromString(userId));
-                if (user != null && user.getStatus() == User.UserStatus.ACTIVE) {
-                    // Кладём userId в атрибуты сессии – позже Spring будет использовать его как Principal
-                    attributes.put("userId", user.getId().toString());
-                    log.info("WebSocket authenticated for user: {}", userId);
-                    return true;
+                try {
+                    String userId = jwtService.getUserIdFromToken(token);
+                    User user = userService.getUserById(UUID.fromString(userId));
+                    if (user != null && user.getStatus() == User.UserStatus.ACTIVE) {
+                        // КЛЮЧЕВЫЕ СТРОКИ:
+                        attributes.put("userId", userId);
+                        attributes.put(Principal.class.getName(), (Principal) () -> userId);
+                        log.info("WebSocket authenticated for user: {}", userId);
+                        return true;
+                    }
+                } catch (Exception e) {
+                    log.error("Authentication error: ", e);
                 }
             }
             log.warn("WebSocket authentication failed");
@@ -47,6 +54,6 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                WebSocketHandler wsHandler, Exception exception) {
-        // ничего не делаем
+        // Ничего не делаем
     }
 }

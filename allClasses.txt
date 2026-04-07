@@ -1,3 +1,47 @@
+======================= info/prorabka/varamy/config/AuthChannelInterceptor.java =======================
+package info.prorabka.varamy.config;
+
+import info.prorabka.varamy.service.JwtService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.stereotype.Component;
+
+import java.security.Principal;
+import java.util.List;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class AuthChannelInterceptor implements ChannelInterceptor {
+
+    private final JwtService jwtService;
+
+    @Override
+    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+        if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+            List<String> tokens = accessor.getNativeHeader("token");
+            String token = (tokens != null && !tokens.isEmpty()) ? tokens.get(0) : null;
+            if (token != null && jwtService.validateToken(token)) {
+                String userId = jwtService.getUserIdFromToken(token);
+                Principal user = () -> userId;
+                accessor.setUser(user);
+                log.info("STOMP authenticated user: {}", userId);
+            } else {
+                log.warn("STOMP connection rejected: invalid or missing token");
+                return null; // отклоняем соединение
+            }
+        }
+        return message;
+    }
+}
+
 ======================= info/prorabka/varamy/config/JwtConfig.java =======================
 package info.prorabka.varamy.config;
 
@@ -29,6 +73,7 @@ import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
+import java.security.Principal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,21 +84,27 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtService jwtService;
     private final UserService userService;
 
+
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
         if (request instanceof ServletServerHttpRequest servletRequest) {
             String token = servletRequest.getServletRequest().getParameter("token");
-            log.debug("WebSocket handshake, token present: {}", token != null);
-
+            System.out.println("=== JwtHandshakeInterceptor called, token present: " + (token != null));
+            log.info("=== JwtHandshakeInterceptor called, token present: {}", token != null);
             if (token != null && jwtService.validateToken(token)) {
-                String userId = jwtService.getUserIdFromToken(token);
-                User user = userService.getUserById(UUID.fromString(userId));
-                if (user != null && user.getStatus() == User.UserStatus.ACTIVE) {
-                    // Кладём userId в атрибуты сессии – позже Spring будет использовать его как Principal
-                    attributes.put("userId", user.getId().toString());
-                    log.info("WebSocket authenticated for user: {}", userId);
-                    return true;
+                try {
+                    String userId = jwtService.getUserIdFromToken(token);
+                    User user = userService.getUserById(UUID.fromString(userId));
+                    if (user != null && user.getStatus() == User.UserStatus.ACTIVE) {
+                        // КЛЮЧЕВЫЕ СТРОКИ:
+                        attributes.put("userId", userId);
+                        attributes.put(Principal.class.getName(), (Principal) () -> userId);
+                        log.info("WebSocket authenticated for user: {}", userId);
+                        return true;
+                    }
+                } catch (Exception e) {
+                    log.error("Authentication error: ", e);
                 }
             }
             log.warn("WebSocket authentication failed");
@@ -65,7 +116,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                WebSocketHandler wsHandler, Exception exception) {
-        // ничего не делаем
+        // Ничего не делаем
     }
 }
 
@@ -298,12 +349,11 @@ import info.prorabka.varamy.service.JwtService;
 import info.prorabka.varamy.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-
-import jakarta.annotation.PostConstruct;
 
 @Slf4j
 @Configuration
@@ -312,15 +362,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtService jwtService;
     private final UserService userService;
+    private final AuthChannelInterceptor authChannelInterceptor;
 
-    public WebSocketConfig(JwtService jwtService, UserService userService) {
+    public WebSocketConfig(JwtService jwtService, UserService userService,
+                           AuthChannelInterceptor authChannelInterceptor) {
         this.jwtService = jwtService;
         this.userService = userService;
-    }
-
-    @PostConstruct
-    public void init() {
-        log.info("WebSocketConfig загружен");
+        this.authChannelInterceptor = authChannelInterceptor;
     }
 
     @Override
@@ -329,14 +377,20 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws")
                 .setAllowedOrigins("*")
                 .addInterceptors(new JwtHandshakeInterceptor(jwtService, userService));
-        // .withSockJS();  // раскомментировать, если нужен SockJS
+        // Не используем SockJS, если клиент использует raw WebSocket
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
+        // Простой брокер без heartbeat – работает отлично
         registry.enableSimpleBroker("/queue", "/topic");
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(authChannelInterceptor);
     }
 }
 
@@ -999,10 +1053,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -1012,6 +1073,8 @@ import java.util.List;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry userRegistry;  // для отладки
 
     // ========== НАСТРОЙКИ ==========
 
@@ -1078,6 +1141,50 @@ public class NotificationController {
             @RequestBody List<Long> notificationIds) {
         notificationService.markAsRead(currentUser.getId(), notificationIds);
         return ResponseEntity.ok(ApiResponse.success("Уведомления отмечены прочитанными", null));
+    }
+
+    // ========== ТЕСТОВЫЕ ЭНДПОИНТЫ ==========
+
+    @PostMapping("/test-public")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "ТЕСТ: Отправить публичное уведомление в /topic/notifications")
+    public ResponseEntity<ApiResponse<Void>> sendTestPublicNotification() {
+        messagingTemplate.convertAndSend(
+                "/topic/notifications",
+                Map.of("type", "TEST_PUBLIC", "content", "Тестовое публичное уведомление от " + LocalDateTime.now())
+        );
+        return ResponseEntity.ok(ApiResponse.success("Тестовое публичное уведомление отправлено", null));
+    }
+
+    @PostMapping("/test-private")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "ТЕСТ: Отправить личное уведомление в /user/queue/notifications")
+    public ResponseEntity<ApiResponse<Void>> sendTestPrivateNotification(@AuthenticationPrincipal SecurityUser currentUser) {
+        // Проверка активной сессии (для отладки)
+        SimpUser simpUser = userRegistry.getUser(currentUser.getId().toString());
+        if (simpUser == null || !simpUser.hasSessions()) {
+            log.warn("Нет активной WebSocket-сессии для пользователя {}", currentUser.getId());
+            // ИСПРАВЛЕНО: убран второй аргумент null
+            return ResponseEntity.badRequest().body(ApiResponse.error("Нет активной WebSocket-сессии"));
+        }
+        log.info("Пользователь {} имеет активную сессию, отправляем уведомление", currentUser.getId());
+
+        messagingTemplate.convertAndSendToUser(
+                currentUser.getId().toString(),
+                "/queue/notifications",
+                Map.of("type", "TEST_PRIVATE", "content", "Тестовое личное уведомление от " + LocalDateTime.now())
+        );
+        return ResponseEntity.ok(ApiResponse.success("Тестовое личное уведомление отправлено", null));
+    }
+
+    @GetMapping("/sessions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<String>>> getActiveSessions() {
+        List<String> sessions = userRegistry.getUsers().stream()
+                .flatMap(u -> u.getSessions().stream())
+                .map(s -> s.getId())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(sessions));
     }
 }
 
@@ -4929,6 +5036,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -4947,7 +5056,8 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserService userService;
     private final CityRepository cityRepository;
-    private final SimpMessagingTemplate messagingTemplate;  // для WebSocket
+    private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry userRegistry;   // для проверки активных сессий
 
     // ========== НАСТРОЙКИ ==========
 
@@ -5041,6 +5151,19 @@ public class NotificationService {
 
     @Transactional
     public void createAndSendNotification(UUID userId, String type, String content, UUID relatedEntityId) {
+        log.info(">>> Creating notification for user {}: type={}, content={}", userId, type, content);
+
+        // 1. Проверяем, есть ли у пользователя активная WebSocket-сессия
+        SimpUser simpUser = userRegistry.getUser(userId.toString());
+        if (simpUser == null || !simpUser.hasSessions()) {
+            log.warn("User {} has no active WebSocket session, notification will be saved but not sent", userId);
+            // Уведомление уже сохранено в БД, клиент заберёт его через REST
+            return;
+        } else {
+            log.debug("User {} has active WebSocket session(s)", userId);
+        }
+
+        // 2. Сохраняем уведомление в БД
         User user = userService.getUserById(userId);
         Notification notification = new Notification();
         notification.setUser(user);
@@ -5050,19 +5173,26 @@ public class NotificationService {
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         notification = notificationRepository.save(notification);
+        log.info("Notification saved to DB with id={}", notification.getId());
 
+        // 3. Формируем DTO для отправки
         NotificationResponse notificationResponse = toResponse(notification);
 
-        try {
-
-            messagingTemplate.convertAndSendToUser(
-                    userId.toString(),
-                    "/queue/notifications",
-                    notificationResponse
-            );
-
-        } catch (Exception e) {
-            log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage());
+        // 4. Отправляем через WebSocket (только если есть активная сессия)
+        if (simpUser != null && simpUser.hasSessions()) {
+            log.info("Attempting to send WebSocket notification to user {}", userId);
+            try {
+                messagingTemplate.convertAndSendToUser(
+                        userId.toString(),
+                        "/queue/notifications",
+                        notificationResponse
+                );
+                log.info("WebSocket notification successfully sent to user {}", userId);
+            } catch (Exception e) {
+                log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage(), e);
+            }
+        } else {
+            log.info("WebSocket notification not sent (no active session) for user {}", userId);
         }
     }
 
@@ -5077,7 +5207,7 @@ public class NotificationService {
                 .build();
     }
 
-    // ========== ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ ==========
+    // ========== ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ (REST) ==========
 
     public Page<NotificationResponse> getNotifications(UUID userId, Pageable pageable, Boolean onlyUnread) {
         Page<Notification> page;
@@ -5097,42 +5227,44 @@ public class NotificationService {
     public void markAsRead(UUID userId, List<Long> notificationIds) {
         if (notificationIds == null || notificationIds.isEmpty()) return;
         int updated = notificationRepository.markAsRead(userId, notificationIds);
-        log.info("Отмечено как прочитанные {} уведомлений для пользователя {}", updated, userId);
+        log.info("Marked {} notifications as read for user {}", updated, userId);
     }
 
     // ========== ЛОГИКА ГЕНЕРАЦИИ ПО СОБЫТИЯМ ==========
 
-    // Этот метод будет вызываться из ResponseService при создании отклика
     public void onResponseCreated(UUID adAuthorId, UUID adId, UUID responseId, String responderName) {
+        log.info("onResponseCreated: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
         if (settings.isNotifyOnResponseToMyAd()) {
             String content = String.format("Пользователь %s откликнулся на ваше объявление", responderName);
             createAndSendNotification(adAuthorId, "RESPONSE", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE disabled", adAuthorId);
         }
     }
 
-    // Этот метод будет вызываться из ResponseService при принятии отклика (status -> APPROVED)
     public void onResponseAccepted(UUID responderId, UUID adId, UUID responseId, String adTitle) {
+        log.info("onResponseAccepted: responderId={}, adTitle={}", responderId, adTitle);
         NotificationSettings settings = settingsRepository.findByUserId(responderId)
                 .orElseGet(() -> createDefaultSettings(responderId));
         if (settings.isNotifyOnMyResponseAccepted()) {
             String content = String.format("Ваш отклик на объявление \"%s\" принят", adTitle);
             createAndSendNotification(responderId, "RESPONSE_ACCEPTED", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE_ACCEPTED disabled", responderId);
         }
     }
 
-    // Этот метод будет вызываться из AdService при создании нового объявления
     public void onNewAdCreated(Ad newAd) {
         Long cityId = newAd.getCity().getId();
         Integer type = newAd.getType();
         Integer subType = newAd.getSubType();
+        log.info("onNewAdCreated: cityId={}, type={}, subType={}", cityId, type, subType);
 
-        // Найти всех пользователей, у которых:
-        // - notifyNewAdsInCity = true
-        // - notificationCityId совпадает с cityId (или если null, то homeCityId совпадает)
-        // - у них есть подписка на (type, subType)
         List<User> interestedUsers = userService.findUsersForNewAdNotification(cityId, type, subType);
+        log.info("Found {} interested users for new ad notification", interestedUsers.size());
+
         for (User user : interestedUsers) {
             String content = String.format("Новое объявление типа %d.%d в вашем городе: %s",
                     type, subType, newAd.getTeam() != null ? newAd.getTeam() : "без команды");
@@ -5140,7 +5272,22 @@ public class NotificationService {
         }
     }
 
+    public void sendTestNotification(UUID userId) {
+        NotificationResponse test = NotificationResponse.builder()
+                .id(0L)
+                .type("TEST")
+                .content("Тестовое уведомление от " + LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
+                .isRead(false)
+                .build();
 
+        try {
+            messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/notifications", test);
+            log.info("Test notification sent to user {}", userId);
+        } catch (Exception e) {
+            log.error("Failed to send test notification to user {}: {}", userId, e.getMessage(), e);
+        }
+    }
 }
 
 ======================= info/prorabka/varamy/service/ProfileService.java =======================

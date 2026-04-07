@@ -132,8 +132,9 @@ public class NotificationService {
         // 1. Проверяем, есть ли у пользователя активная WebSocket-сессия
         SimpUser simpUser = userRegistry.getUser(userId.toString());
         if (simpUser == null || !simpUser.hasSessions()) {
-            log.warn("User {} has no active WebSocket session. Notification will be saved but not sent live.", userId);
-            // Всё равно сохраняем уведомление в БД, но не отправляем по WebSocket
+            log.warn("User {} has no active WebSocket session, notification will be saved but not sent", userId);
+            // Уведомление уже сохранено в БД, клиент заберёт его через REST
+            return;
         } else {
             log.debug("User {} has active WebSocket session(s)", userId);
         }
@@ -155,6 +156,7 @@ public class NotificationService {
 
         // 4. Отправляем через WebSocket (только если есть активная сессия)
         if (simpUser != null && simpUser.hasSessions()) {
+            log.info("Attempting to send WebSocket notification to user {}", userId);
             try {
                 messagingTemplate.convertAndSendToUser(
                         userId.toString(),
@@ -243,6 +245,23 @@ public class NotificationService {
             String content = String.format("Новое объявление типа %d.%d в вашем городе: %s",
                     type, subType, newAd.getTeam() != null ? newAd.getTeam() : "без команды");
             createAndSendNotification(user.getId(), "NEW_AD", content, newAd.getId());
+        }
+    }
+
+    public void sendTestNotification(UUID userId) {
+        NotificationResponse test = NotificationResponse.builder()
+                .id(0L)
+                .type("TEST")
+                .content("Тестовое уведомление от " + LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
+                .isRead(false)
+                .build();
+
+        try {
+            messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/notifications", test);
+            log.info("Test notification sent to user {}", userId);
+        } catch (Exception e) {
+            log.error("Failed to send test notification to user {}: {}", userId, e.getMessage(), e);
         }
     }
 }

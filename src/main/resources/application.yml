@@ -41,13 +41,11 @@ jwt:
 logging:
   level:
     info.prorabka.varamy: DEBUG
+    info.prorabka.varamy.config: INFO   # явно для конфигурационных классов
     org.springframework.web: DEBUG
     org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
-    org.hibernate.type.descriptor.sql: TRACE
-    org.springframework.orm.jpa: DEBUG
-    org.springframework.transaction: DEBUG
 
 file:
   upload-dir: uploads   # абсолютный путь на сервере

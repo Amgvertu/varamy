@@ -16,10 +16,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -29,6 +36,8 @@ import java.util.List;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry userRegistry;  // для отладки
 
     // ========== НАСТРОЙКИ ==========
 
@@ -95,5 +104,49 @@ public class NotificationController {
             @RequestBody List<Long> notificationIds) {
         notificationService.markAsRead(currentUser.getId(), notificationIds);
         return ResponseEntity.ok(ApiResponse.success("Уведомления отмечены прочитанными", null));
+    }
+
+    // ========== ТЕСТОВЫЕ ЭНДПОИНТЫ ==========
+
+    @PostMapping("/test-public")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "ТЕСТ: Отправить публичное уведомление в /topic/notifications")
+    public ResponseEntity<ApiResponse<Void>> sendTestPublicNotification() {
+        messagingTemplate.convertAndSend(
+                "/topic/notifications",
+                Map.of("type", "TEST_PUBLIC", "content", "Тестовое публичное уведомление от " + LocalDateTime.now())
+        );
+        return ResponseEntity.ok(ApiResponse.success("Тестовое публичное уведомление отправлено", null));
+    }
+
+    @PostMapping("/test-private")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "ТЕСТ: Отправить личное уведомление в /user/queue/notifications")
+    public ResponseEntity<ApiResponse<Void>> sendTestPrivateNotification(@AuthenticationPrincipal SecurityUser currentUser) {
+        // Проверка активной сессии (для отладки)
+        SimpUser simpUser = userRegistry.getUser(currentUser.getId().toString());
+        if (simpUser == null || !simpUser.hasSessions()) {
+            log.warn("Нет активной WebSocket-сессии для пользователя {}", currentUser.getId());
+            // ИСПРАВЛЕНО: убран второй аргумент null
+            return ResponseEntity.badRequest().body(ApiResponse.error("Нет активной WebSocket-сессии"));
+        }
+        log.info("Пользователь {} имеет активную сессию, отправляем уведомление", currentUser.getId());
+
+        messagingTemplate.convertAndSendToUser(
+                currentUser.getId().toString(),
+                "/queue/notifications",
+                Map.of("type", "TEST_PRIVATE", "content", "Тестовое личное уведомление от " + LocalDateTime.now())
+        );
+        return ResponseEntity.ok(ApiResponse.success("Тестовое личное уведомление отправлено", null));
+    }
+
+    @GetMapping("/sessions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<String>>> getActiveSessions() {
+        List<String> sessions = userRegistry.getUsers().stream()
+                .flatMap(u -> u.getSessions().stream())
+                .map(s -> s.getId())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(sessions));
     }
 }
