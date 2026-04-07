@@ -9,6 +9,11 @@ spring:
     password: ${DB_PASSWORD:vara}
     driver-class-name: org.postgresql.Driver
 
+  servlet:
+    multipart:
+      max-file-size: 5MB      # максимальный размер одного файла
+      max-request-size: 5MB   # общий размер всего запроса (включа€ другие пол€)
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -46,7 +51,14 @@ logging:
     org.springframework.transaction: DEBUG
 
 file:
-  upload-dir: ${UPLOAD_DIR:uploads}
+  upload-dir: uploads   # абсолютный путь на сервере
+
+sms:
+  mock-mode: true  # true - режим разработки (логирование), false - реальна€ отправка SMS
+
+verification:
+  code:
+    expiry-minutes: 5  # ¬рем€ жизни кода подтверждени€ (минут)
 
 app:
   cors:
@@ -80,6 +92,7 @@ app:
     cleanup:
       archive-months: 5  #  оличество мес€цев хранени€ архивных объ€влений
       archive-cron: "0 0 3 * * ?"  # ≈жедневно в 3 часа ночи
+  base-url: https://92.125.255.63/api2   # внешний URL с префиксом /api2
 
 springdoc:
   api-docs:
@@ -147,6 +160,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
 	// Database
 	implementation 'org.postgresql:postgresql:42.7.3'

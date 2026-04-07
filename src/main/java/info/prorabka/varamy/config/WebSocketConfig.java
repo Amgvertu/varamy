@@ -2,13 +2,16 @@ package info.prorabka.varamy.config;
 
 import info.prorabka.varamy.service.JwtService;
 import info.prorabka.varamy.service.UserService;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
+import jakarta.annotation.PostConstruct;
+
+@Slf4j
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
@@ -21,12 +24,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.userService = userService;
     }
 
+    @PostConstruct
+    public void init() {
+        log.info("WebSocketConfig загружен");
+    }
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        log.info("Регистрация STOMP эндпоинта /ws");
         registry.addEndpoint("/ws")
                 .setAllowedOrigins("*")
                 .addInterceptors(new JwtHandshakeInterceptor(jwtService, userService))
-                .withSockJS();
+                .withSockJS();  // раскомментировать, если нужен SockJS
     }
 
     @Override
@@ -36,3 +45,4 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setUserDestinationPrefix("/user");
     }
 }
+

@@ -305,7 +305,6 @@ public class AdService {
 
     // ============= СТАТИСТИКА =============
 
-    @Builder
     public AdStatistics getAdStatistics() {
         return AdStatistics.builder()
                 .totalActive(adRepository.countByStatus(Ad.AdStatus.ACTIVE))

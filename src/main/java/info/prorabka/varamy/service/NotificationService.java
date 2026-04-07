@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +32,8 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserService userService;
     private final CityRepository cityRepository;
-    private final SimpMessagingTemplate messagingTemplate;  // для WebSocket
+    private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry userRegistry;   // для проверки активных сессий
 
     // ========== НАСТРОЙКИ ==========
 
@@ -124,6 +127,18 @@ public class NotificationService {
 
     @Transactional
     public void createAndSendNotification(UUID userId, String type, String content, UUID relatedEntityId) {
+        log.info(">>> Creating notification for user {}: type={}, content={}", userId, type, content);
+
+        // 1. Проверяем, есть ли у пользователя активная WebSocket-сессия
+        SimpUser simpUser = userRegistry.getUser(userId.toString());
+        if (simpUser == null || !simpUser.hasSessions()) {
+            log.warn("User {} has no active WebSocket session. Notification will be saved but not sent live.", userId);
+            // Всё равно сохраняем уведомление в БД, но не отправляем по WebSocket
+        } else {
+            log.debug("User {} has active WebSocket session(s)", userId);
+        }
+
+        // 2. Сохраняем уведомление в БД
         User user = userService.getUserById(userId);
         Notification notification = new Notification();
         notification.setUser(user);
@@ -133,20 +148,25 @@ public class NotificationService {
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         notification = notificationRepository.save(notification);
+        log.info("Notification saved to DB with id={}", notification.getId());
 
+        // 3. Формируем DTO для отправки
         NotificationResponse notificationResponse = toResponse(notification);
 
-        try {
-
-            messagingTemplate.convertAndSendToUser(
-                    userId.toString(),
-                    "/queue/notifications",
-                    notificationResponse
-            );
-            messagingTemplate.convertAndSend("/topic/notifications", notificationResponse);
-            log.info("WebSocket message sent to user {}", userId);
-        } catch (Exception e) {
-            log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage());
+        // 4. Отправляем через WebSocket (только если есть активная сессия)
+        if (simpUser != null && simpUser.hasSessions()) {
+            try {
+                messagingTemplate.convertAndSendToUser(
+                        userId.toString(),
+                        "/queue/notifications",
+                        notificationResponse
+                );
+                log.info("WebSocket notification successfully sent to user {}", userId);
+            } catch (Exception e) {
+                log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage(), e);
+            }
+        } else {
+            log.info("WebSocket notification not sent (no active session) for user {}", userId);
         }
     }
 
@@ -161,7 +181,7 @@ public class NotificationService {
                 .build();
     }
 
-    // ========== ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ ==========
+    // ========== ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ (REST) ==========
 
     public Page<NotificationResponse> getNotifications(UUID userId, Pageable pageable, Boolean onlyUnread) {
         Page<Notification> page;
@@ -181,48 +201,48 @@ public class NotificationService {
     public void markAsRead(UUID userId, List<Long> notificationIds) {
         if (notificationIds == null || notificationIds.isEmpty()) return;
         int updated = notificationRepository.markAsRead(userId, notificationIds);
-        log.info("Отмечено как прочитанные {} уведомлений для пользователя {}", updated, userId);
+        log.info("Marked {} notifications as read for user {}", updated, userId);
     }
 
     // ========== ЛОГИКА ГЕНЕРАЦИИ ПО СОБЫТИЯМ ==========
 
-    // Этот метод будет вызываться из ResponseService при создании отклика
     public void onResponseCreated(UUID adAuthorId, UUID adId, UUID responseId, String responderName) {
+        log.info("onResponseCreated: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
         if (settings.isNotifyOnResponseToMyAd()) {
             String content = String.format("Пользователь %s откликнулся на ваше объявление", responderName);
             createAndSendNotification(adAuthorId, "RESPONSE", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE disabled", adAuthorId);
         }
     }
 
-    // Этот метод будет вызываться из ResponseService при принятии отклика (status -> APPROVED)
     public void onResponseAccepted(UUID responderId, UUID adId, UUID responseId, String adTitle) {
+        log.info("onResponseAccepted: responderId={}, adTitle={}", responderId, adTitle);
         NotificationSettings settings = settingsRepository.findByUserId(responderId)
                 .orElseGet(() -> createDefaultSettings(responderId));
         if (settings.isNotifyOnMyResponseAccepted()) {
             String content = String.format("Ваш отклик на объявление \"%s\" принят", adTitle);
             createAndSendNotification(responderId, "RESPONSE_ACCEPTED", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE_ACCEPTED disabled", responderId);
         }
     }
 
-    // Этот метод будет вызываться из AdService при создании нового объявления
     public void onNewAdCreated(Ad newAd) {
         Long cityId = newAd.getCity().getId();
         Integer type = newAd.getType();
         Integer subType = newAd.getSubType();
+        log.info("onNewAdCreated: cityId={}, type={}, subType={}", cityId, type, subType);
 
-        // Найти всех пользователей, у которых:
-        // - notifyNewAdsInCity = true
-        // - notificationCityId совпадает с cityId (или если null, то homeCityId совпадает)
-        // - у них есть подписка на (type, subType)
         List<User> interestedUsers = userService.findUsersForNewAdNotification(cityId, type, subType);
+        log.info("Found {} interested users for new ad notification", interestedUsers.size());
+
         for (User user : interestedUsers) {
             String content = String.format("Новое объявление типа %d.%d в вашем городе: %s",
                     type, subType, newAd.getTeam() != null ? newAd.getTeam() : "без команды");
             createAndSendNotification(user.getId(), "NEW_AD", content, newAd.getId());
         }
     }
-
-
 }
