@@ -19,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -34,6 +36,9 @@ public class NotificationService {
     private final CityRepository cityRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final SimpUserRegistry userRegistry;   // для проверки активных сессий
+    private final FcmService fcmService;
+    private final Map<UUID, Long> lastFcmSentTime = new ConcurrentHashMap<>();
+    private static final long FCM_COOLDOWN_MS = 5 * 60 * 1000; // 5 минут (настройте под свои задачи)
 
     // ========== НАСТРОЙКИ ==========
 
@@ -129,17 +134,7 @@ public class NotificationService {
     public void createAndSendNotification(UUID userId, String type, String content, UUID relatedEntityId) {
         log.info(">>> Creating notification for user {}: type={}, content={}", userId, type, content);
 
-        // 1. Проверяем, есть ли у пользователя активная WebSocket-сессия
-        SimpUser simpUser = userRegistry.getUser(userId.toString());
-        if (simpUser == null || !simpUser.hasSessions()) {
-            log.warn("User {} has no active WebSocket session, notification will be saved but not sent", userId);
-            // Уведомление уже сохранено в БД, клиент заберёт его через REST
-            return;
-        } else {
-            log.debug("User {} has active WebSocket session(s)", userId);
-        }
-
-        // 2. Сохраняем уведомление в БД
+        // 1. Сохраняем уведомление в БД (ВСЕГДА, независимо от наличия сессии)
         User user = userService.getUserById(userId);
         Notification notification = new Notification();
         notification.setUser(user);
@@ -151,24 +146,35 @@ public class NotificationService {
         notification = notificationRepository.save(notification);
         log.info("Notification saved to DB with id={}", notification.getId());
 
-        // 3. Формируем DTO для отправки
-        NotificationResponse notificationResponse = toResponse(notification);
+        // 2. Проверяем наличие активной WebSocket-сессии
+        SimpUser simpUser = userRegistry.getUser(userId.toString());
+        boolean hasSession = (simpUser != null && simpUser.hasSessions());
 
-        // 4. Отправляем через WebSocket (только если есть активная сессия)
-        if (simpUser != null && simpUser.hasSessions()) {
-            log.info("Attempting to send WebSocket notification to user {}", userId);
+        if (hasSession) {
+            // Сессия есть – отправляем уведомление через WebSocket немедленно
+            NotificationResponse response = toResponse(notification);
             try {
                 messagingTemplate.convertAndSendToUser(
                         userId.toString(),
                         "/queue/notifications",
-                        notificationResponse
+                        response
                 );
                 log.info("WebSocket notification successfully sent to user {}", userId);
             } catch (Exception e) {
                 log.error("Failed to send WebSocket notification to user {}: {}", userId, e.getMessage(), e);
             }
         } else {
-            log.info("WebSocket notification not sent (no active session) for user {}", userId);
+            // Сессии нет – отправляем FCM "пробуждение" (с защитой от частых отправок)
+            log.info("No active WebSocket session for user {}, sending FCM wake-up", userId);
+
+            if (shouldSendFcm(userId)) {
+                fcmService.sendWakeUpNotification(userId);
+                lastFcmSentTime.put(userId, System.currentTimeMillis());
+                log.info("FCM wake-up sent to user {}", userId);
+            } else {
+                log.debug("FCM wake-up already sent recently for user {}, skipping", userId);
+            }
+            // Уведомление сохранено в БД, клиент заберёт его через REST после пробуждения
         }
     }
 
@@ -263,5 +269,19 @@ public class NotificationService {
         } catch (Exception e) {
             log.error("Failed to send test notification to user {}: {}", userId, e.getMessage(), e);
         }
+
+    }
+
+    private boolean hasActiveWebSocketSession(UUID userId) {
+        SimpUser simpUser = userRegistry.getUser(userId.toString());
+        return simpUser != null && simpUser.hasSessions();
+    }
+
+    private boolean shouldSendFcm(UUID userId) {
+        Long last = lastFcmSentTime.get(userId);
+        if (last == null) {
+            return true;
+        }
+        return System.currentTimeMillis() - last > FCM_COOLDOWN_MS;
     }
 }
