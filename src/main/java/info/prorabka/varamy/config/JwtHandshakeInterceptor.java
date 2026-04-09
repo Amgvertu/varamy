@@ -22,7 +22,6 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtService jwtService;
     private final UserService userService;
 
-
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {

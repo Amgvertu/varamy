@@ -10,7 +10,7 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 5MB      # максимальный размер одного файла
+      max-file-size: 5MB      # максимальный размер одного файла`
       max-request-size: 5MB   # общий размер всего запроса (включая другие поля)
 
   jpa:
@@ -89,7 +89,7 @@ app:
     cleanup:
       archive-months: 5  # Количество месяцев хранения архивных объявлений
       archive-cron: "0 0 3 * * ?"  # Ежедневно в 3 часа ночи
-  base-url: https://92.125.255.63/api2   # внешний URL с префиксом /api2
+  base-url: https://varamy.online/api   # внешний URL с префиксом /api2
 
 springdoc:
   api-docs:

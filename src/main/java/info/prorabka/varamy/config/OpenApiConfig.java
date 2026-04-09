@@ -35,7 +35,7 @@ public class OpenApiConfig {
                                 .name("Apache 2.0")
                                 .url("http://springdoc.org")))
                 .servers(List.of(
-                        new Server().url("http://92.125.255.63:" + serverPort).description("БД"),
+                        new Server().url("https://varamy.online").description("БД"),
                         new Server().url("http://192.168.0.119:" + serverPort).description("Локальный сервер")
                 ))
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
