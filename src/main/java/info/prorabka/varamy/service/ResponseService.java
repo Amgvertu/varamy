@@ -154,12 +154,14 @@ public class ResponseService {
             notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
 
             // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
-        } else if (status == Response.ResponseStatus.PENDING &&
-                response.getStatus() == Response.ResponseStatus.APPROVED) {
+        } else if (status == Response.ResponseStatus.PENDING && response.getStatus() == Response.ResponseStatus.APPROVED) {
             response.setStatus(Response.ResponseStatus.PENDING);
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
             adRepository.save(ad);
+            // Добавить уведомление об отмене принятия
+            String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+            notificationService.onResponseAcceptanceCancelled(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
 
             // --- ОТКЛОНЕНИЕ ОТКЛИКА (REJECTED) ---
         } else if (status == Response.ResponseStatus.REJECTED) {
@@ -167,7 +169,9 @@ public class ResponseService {
                 throw new BadRequestException("Нельзя отклонить принятый отклик, сначала отмените принятие");
             }
             response.setStatus(Response.ResponseStatus.REJECTED);
-            // Статус объявления не меняем при отклонении
+            // Добавить уведомление об отклонении
+            String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+            notificationService.onResponseRejected(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
 
         } else {
             throw new BadRequestException("Недопустимый статус");
@@ -192,12 +196,16 @@ public class ResponseService {
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
         responseRepository.delete(response);
+        String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), response.getId(), adTitle, response.getUser().getProfile().getFirstName());
 
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
             adRepository.save(ad);
         }
+
+
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
     }
 
@@ -267,4 +275,6 @@ public class ResponseService {
             return dto;
         });
     }
+
+
 }

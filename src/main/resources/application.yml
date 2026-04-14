@@ -1,6 +1,19 @@
 spring:
   application:
     name: varamy
+  mail:
+    host: smtp.beget.com   # например, smtp.yandex.ru
+    port: 465
+    username: feedback@katok.pro
+    password: ${Lucky17112014@}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+          starttls:
+            enable: false
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:vara_my}

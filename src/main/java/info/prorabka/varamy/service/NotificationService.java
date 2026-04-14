@@ -238,6 +238,35 @@ public class NotificationService {
         }
     }
 
+    //Уведомление об отмене принятия отклика (APPROVED -> PENDING)
+    public void onResponseAcceptanceCancelled(UUID responderId, UUID adId, UUID responseId, String adTitle) {
+        log.info("onResponseAcceptanceCancelled: responderId={}, adTitle={}", responderId, adTitle);
+        NotificationSettings settings = settingsRepository.findByUserId(responderId)
+                .orElseGet(() -> createDefaultSettings(responderId));
+        if (settings.isNotifyOnMyResponseAccepted()) {
+            String content = String.format("Принятие вашего отклика на объявление \"%s\" отменено", adTitle);
+            createAndSendNotification(responderId, "RESPONSE_ACCEPTANCE_CANCELLED", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE_ACCEPTANCE_CANCELLED disabled", responderId);
+        }
+    }
+
+    // Уведомление об отклонении отклика (REJECTED)
+    public void onResponseRejected(UUID responderId, UUID adId, UUID responseId, String adTitle) {
+        log.info("onResponseRejected: responderId={}, adTitle={}", responderId, adTitle);
+        NotificationSettings settings = settingsRepository.findByUserId(responderId)
+                .orElseGet(() -> createDefaultSettings(responderId));
+        // Для отклонения используем настройку notifyOnMyResponseAccepted? Или отдельная?
+        // По умолчанию используем ту же, что и для принятия (логично)
+        if (settings.isNotifyOnMyResponseAccepted()) {
+            String content = String.format("Ваш отклик на объявление \"%s\" был отклонён", adTitle);
+            createAndSendNotification(responderId, "RESPONSE_REJECTED", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE_REJECTED disabled", responderId);
+        }
+    }
+
+
     public void onNewAdCreated(Ad newAd) {
         Long cityId = newAd.getCity().getId();
         Integer type = newAd.getType();
@@ -283,5 +312,17 @@ public class NotificationService {
             return true;
         }
         return System.currentTimeMillis() - last > FCM_COOLDOWN_MS;
+    }
+
+    public void onResponseWithdrawn(UUID adAuthorId, UUID adId, UUID responseId, String adTitle, String responderName) {
+        log.info("onResponseWithdrawn: adAuthorId={}, responderName={}", adAuthorId, responderName);
+        NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
+                .orElseGet(() -> createDefaultSettings(adAuthorId));
+        if (settings.isNotifyOnResponseToMyAd()) {
+            String content = String.format("Пользователь %s отозвал свой отклик на объявление \"%s\"", responderName, adTitle);
+            createAndSendNotification(adAuthorId, "RESPONSE_WITHDRAWN", content, responseId);
+        } else {
+            log.debug("User {} has notifications for RESPONSE_WITHDRAWN disabled", adAuthorId);
+        }
     }
 }
