@@ -3,7 +3,6 @@ package info.prorabka.varamy.service;
 import info.prorabka.varamy.dto.request.FeedbackRequest;
 import info.prorabka.varamy.entity.FeedbackMessage;
 import info.prorabka.varamy.entity.User;
-import info.prorabka.varamy.exception.BadRequestException;
 import info.prorabka.varamy.repository.FeedbackMessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,39 +27,24 @@ public class FeedbackService {
 
     @Transactional
     public void sendFeedback(UUID userId, FeedbackRequest request) {
+        // 1. Получаем пользователя (только для привязки, данные не подставляем)
         User user = userService.getUserById(userId);
-        var profile = user.getProfile();
-        if (profile == null) {
-            throw new BadRequestException("Профиль пользователя не заполнен");
-        }
-        String fullName = (profile.getFirstName() != null ? profile.getFirstName() : "")
-                + " " + (profile.getLastName() != null ? profile.getLastName() : "");
-        if (fullName.isBlank()) {
-            throw new BadRequestException("Имя и фамилия не заполнены в профиле");
-        }
-        String phone = user.getPhone();
-        if (phone == null || phone.isBlank()) {
-            throw new BadRequestException("Телефон не заполнен");
-        }
-        String email = profile.getEmail();
-        if (email == null || email.isBlank()) {
-            throw new BadRequestException("E-mail не заполнен в профиле");
-        }
 
-        // Сохраняем сообщение в БД
+        // 2. Сохраняем сообщение в БД (все поля из запроса)
         FeedbackMessage msg = new FeedbackMessage();
         msg.setUser(user);
-        msg.setFullName(fullName);
-        msg.setPhone(phone);
-        msg.setEmail(email);
+        msg.setFullName(request.getFullName());
+        msg.setPhone(request.getPhone());
+        msg.setEmail(request.getEmail());
         msg.setSubject(request.getSubject());
         msg.setMessage(request.getMessage());
         msg.setStatus(FeedbackMessage.FeedbackStatus.NEW);
         feedbackRepository.save(msg);
 
-        // Отправляем email
+        // 3. Отправляем email
         try {
-            sendEmail(fullName, phone, email, request.getSubject(), request.getMessage());
+            sendEmail(request.getFullName(), request.getPhone(), request.getEmail(),
+                    request.getSubject(), request.getMessage());
             msg.setStatus(FeedbackMessage.FeedbackStatus.SENT);
             feedbackRepository.save(msg);
             log.info("Feedback sent for user {}: subject={}", userId, request.getSubject());
