@@ -70,6 +70,7 @@ public class FeedbackService {
             feedbackRepository.save(msg);
             throw new RuntimeException("Не удалось отправить сообщение, попробуйте позже", e);
         }
+
     }
 
     private void sendEmail(String fullName, String phone, String email, String subject, String message) {
