@@ -4,6 +4,7 @@ import info.prorabka.varamy.dto.request.FeedbackRequest;
 import info.prorabka.varamy.entity.FeedbackMessage;
 import info.prorabka.varamy.entity.User;
 import info.prorabka.varamy.repository.FeedbackMessageRepository;
+import info.prorabka.varamy.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,17 +21,18 @@ import java.util.UUID;
 public class FeedbackService {
     private final FeedbackMessageRepository feedbackRepository;
     private final JavaMailSender mailSender;
-    private final UserService userService;
+    private final UserRepository userRepository;
 
     @Value("${feedback.email.to:feedback@katok.pro}")
     private String feedbackEmail;
 
     @Transactional
     public void sendFeedback(UUID userId, FeedbackRequest request) {
-        // 1. Получаем пользователя (только для привязки, данные не подставляем)
-        User user = userService.getUserById(userId);
+        User user = null;
+        if (userId != null) {
+            user = userRepository.findById(userId).orElse(null);
+        }
 
-        // 2. Сохраняем сообщение в БД (все поля из запроса)
         FeedbackMessage msg = new FeedbackMessage();
         msg.setUser(user);
         msg.setFullName(request.getFullName());
@@ -41,13 +43,12 @@ public class FeedbackService {
         msg.setStatus(FeedbackMessage.FeedbackStatus.NEW);
         feedbackRepository.save(msg);
 
-        // 3. Отправляем email
         try {
             sendEmail(request.getFullName(), request.getPhone(), request.getEmail(),
                     request.getSubject(), request.getMessage());
             msg.setStatus(FeedbackMessage.FeedbackStatus.SENT);
             feedbackRepository.save(msg);
-            log.info("Feedback sent for user {}: subject={}", userId, request.getSubject());
+            log.info("Feedback sent successfully from {} <{}>", request.getFullName(), request.getEmail());
         } catch (Exception e) {
             log.error("Failed to send feedback email", e);
             msg.setStatus(FeedbackMessage.FeedbackStatus.FAILED);
@@ -58,6 +59,7 @@ public class FeedbackService {
 
     private void sendEmail(String fullName, String phone, String email, String subject, String message) {
         SimpleMailMessage mail = new SimpleMailMessage();
+        mail.setFrom("katok@katok.pro");
         mail.setTo(feedbackEmail);
         mail.setSubject("Обратная связь: " + subject);
         String text = String.format("""

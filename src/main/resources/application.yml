@@ -4,8 +4,8 @@ spring:
   mail:
     host: smtp.beget.com   # например, smtp.yandex.ru
     port: 465
-    username: feedback@katok.pro
-    password: ${Lucky17112014@}
+    username: katok@katok.pro
+    password: ${MAIL_PASSWORD}
     properties:
       mail:
         smtp:

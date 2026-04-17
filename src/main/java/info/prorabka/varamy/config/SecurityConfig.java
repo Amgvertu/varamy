@@ -107,7 +107,8 @@ public class SecurityConfig {
                                 "/webjars/**",
                                 "/swagger-resources/**",
                                 "/configuration/**",
-                                "/ws/**"
+                                "/ws/**",
+                                "/api/feedback"
                         ).permitAll()
                         .requestMatchers("/api/profile/me").authenticated()
                         .requestMatchers("/api/profile/**").permitAll()
