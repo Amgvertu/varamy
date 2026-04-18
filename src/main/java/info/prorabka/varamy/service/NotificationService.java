@@ -6,6 +6,8 @@ import info.prorabka.varamy.dto.response.*;
 import info.prorabka.varamy.entity.*;
 import info.prorabka.varamy.exception.BadRequestException;
 import info.prorabka.varamy.exception.ResourceNotFoundException;
+import info.prorabka.varamy.mapper.AdMapper;
+import info.prorabka.varamy.mapper.ResponseMapper;
 import info.prorabka.varamy.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +41,9 @@ public class NotificationService {
     private final FcmService fcmService;
     private final Map<UUID, Long> lastFcmSentTime = new ConcurrentHashMap<>();
     private static final long FCM_COOLDOWN_MS = 5 * 60 * 1000; // 5 минут (настройте под свои задачи)
+    private final ResponseRepository responseRepository;
+    private final ResponseMapper responseMapper;
+    private final AdMapper adMapper;
 
     // ========== НАСТРОЙКИ ==========
 
@@ -324,5 +329,126 @@ public class NotificationService {
         } else {
             log.debug("User {} has notifications for RESPONSE_WITHDRAWN disabled", adAuthorId);
         }
+    }
+
+    private List<ResponseResponse> getPublicResponsesForAd(Ad ad) {
+        List<Response> responses = responseRepository.findByAdWithUserAndProfile(ad);
+        return responses.stream()
+                .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
+                .map(responseMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public void sendAdStatusUpdate(Ad ad) {
+        Map<String, Object> payload = Map.of(
+                "type", "AD_STATUS_UPDATED",
+                "adId", ad.getId().toString(),
+                "status", ad.getStatus().name()
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
+        log.info("Status update sent for ad {}", ad.getId());
+    }
+
+    /**
+     * Отправить обновление списка откликов (публичный топик)
+     */
+    public void sendResponsesUpdate(Ad ad) {
+        List<ResponseResponse> responses = getPublicResponsesForAd(ad);  // используем свой метод
+        Map<String, Object> payload = Map.of(
+                "type", "RESPONSES_UPDATED",
+                "adId", ad.getId().toString(),
+                "responses", responses
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("Responses update sent for ad {}", ad.getId());
+    }
+
+    /**
+     * Отправить новое объявление в публичный топик (все подписчики)
+     */
+    public void sendNewAdToPublic(Ad ad) {
+        AdResponse adResponse = adMapper.toResponse(ad); // полный DTO
+        Map<String, Object> payload = Map.of(
+                "type", "NEW_AD",
+                "ad", adResponse
+        );
+        messagingTemplate.convertAndSend("/topic/notifications", payload);
+        log.info("New ad sent to public topic: {}", ad.getId());
+    }
+
+    public void sendAdCreated(Ad ad) {
+        AdResponse adResponse = adMapper.toResponse(ad);
+        Map<String, Object> payload = Map.of(
+                "type", "AD_CREATED",
+                "entityId", ad.getId().toString(),
+                "payload", adResponse
+        );
+        messagingTemplate.convertAndSend("/topic/ads", payload);
+        log.info("AD_CREATED sent for ad {}", ad.getId());
+    }
+
+    public void sendAdUpdated(Ad ad) {
+        AdResponse adResponse = adMapper.toResponse(ad);
+        Map<String, Object> payload = Map.of(
+                "type", "AD_UPDATED",
+                "entityId", ad.getId().toString(),
+                "payload", adResponse
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
+        log.info("AD_UPDATED sent for ad {}", ad.getId());
+    }
+
+    public void notifyResponsesChanged(Ad ad) {
+        UUID adId = ad.getId();
+        String authorId = ad.getAuthor().getId().toString();
+
+        // 1. Публичный список (только APPROVED)
+        List<Response> approved = responseRepository.findByAdWithUserAndProfile(ad).stream()
+                .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
+                .toList();
+        List<ResponseResponse> publicResponses = approved.stream()
+                .map(responseMapper::toResponse)
+                .toList();
+
+        Map<String, Object> publicPayload = Map.of(
+                "type", "RESPONSES_UPDATED",
+                "entityId", adId.toString(),
+                "responses", publicResponses
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + adId + "/responses", publicPayload);
+
+        // 2. Полный список для автора (все отклики)
+        List<Response> all = responseRepository.findByAdWithUserAndProfile(ad);
+        List<ResponseResponse> allResponses = all.stream()
+                .map(responseMapper::toResponse)
+                .toList();
+
+        Map<String, Object> authorPayload = Map.of(
+                "type", "RESPONSES_UPDATED",
+                "entityId", adId.toString(),
+                "responses", allResponses
+        );
+        messagingTemplate.convertAndSendToUser(authorId, "/queue/responses", authorPayload);
+
+        log.info("Responses update sent for ad {} (public + author)", adId);
+    }
+
+    public void sendResponseChanged(Ad ad, Response response, String eventType) {
+        ResponseResponse responseDto = responseMapper.toResponse(response);
+        Map<String, Object> payload = Map.of(
+                "type", eventType,
+                "entityId", response.getId().toString(),
+                "payload", responseDto
+        );
+        // В публичный топик отправляем только если отклик APPROVED
+        if (response.getStatus() == Response.ResponseStatus.APPROVED) {
+            messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        }
+        // Автору отправляем всегда (он видит все статусы)
+        messagingTemplate.convertAndSendToUser(
+                ad.getAuthor().getId().toString(),
+                "/queue/responses",
+                payload
+        );
     }
 }

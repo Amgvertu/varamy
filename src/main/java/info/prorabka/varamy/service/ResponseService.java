@@ -68,6 +68,7 @@ public class ResponseService {
         String responderName = (user.getProfile() != null && user.getProfile().getFirstName() != null)
                 ? user.getProfile().getFirstName()
                 : user.getPhone();
+        notificationService.sendResponsesUpdate(ad); // обновить список откликов для всех
         notificationService.onResponseCreated(ad.getAuthor().getId(), adId, response.getId(), responderName);
 
         return responseMapper.toResponse(response);
@@ -79,18 +80,13 @@ public class ResponseService {
     public List<ResponseResponse> getResponsesForAd(UUID adId, UUID userId, boolean isAdmin) {
         Ad ad = adRepository.findById(adId)
                 .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
-
         List<Response> responses = responseRepository.findByAdWithUserAndProfile(ad);
-
-        if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
+        if (!isAdmin && (userId == null || !ad.getAuthor().getId().equals(userId))) {
             responses = responses.stream()
                     .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
                     .collect(Collectors.toList());
         }
-
-        return responses.stream()
-                .map(responseMapper::toResponse)
-                .collect(Collectors.toList());
+        return responses.stream().map(responseMapper::toResponse).collect(Collectors.toList());
     }
 
     // ============================== ИЗМЕНЕНИЕ СТАТУСА ОТКЛИКА ==============================
@@ -178,6 +174,7 @@ public class ResponseService {
         }
 
         response = responseRepository.save(response);
+        notificationService.notifyResponsesChanged(ad);
         log.info("Статус отклика {} изменён на {}", responseId, status);
         return responseMapper.toResponse(response);
     }
@@ -199,11 +196,12 @@ public class ResponseService {
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
         notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), response.getId(), adTitle, response.getUser().getProfile().getFirstName());
 
+        responseRepository.delete(response);
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
-            adRepository.save(ad);
         }
+        notificationService.notifyResponsesChanged(ad);
 
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
@@ -260,7 +258,15 @@ public class ResponseService {
             }
         }
         if (changed) {
-            log.info("Статус объявления {} изменён на {}", ad.getId(), ad.getStatus());
+            adRepository.save(ad);
+            notificationService.sendAdStatusUpdate(ad);   // публичный топик
+            // личное уведомление автору
+            notificationService.createAndSendNotification(
+                    ad.getAuthor().getId(),
+                    "AD_STATUS_CHANGED",
+                    "Статус вашего объявления изменён на " + ad.getStatus(),
+                    ad.getId()
+            );
         }
     }
 

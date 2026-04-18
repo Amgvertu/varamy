@@ -165,7 +165,8 @@ public class AdService {
         }
 
         ad = adRepository.save(ad);
-        notificationService.onNewAdCreated(ad);
+        notificationService.sendAdCreated(ad);        // новое
+        notificationService.onNewAdCreated(ad);           // персональные уведомления (FCM/БД)
         return adMapper.toResponse(ad);
     }
 
@@ -219,6 +220,7 @@ public class AdService {
         }
 
         ad = adRepository.save(ad);
+        notificationService.sendAdUpdated(ad);
         return adMapper.toResponse(ad);
     }
 
