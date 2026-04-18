@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/feedback")
 @RequiredArgsConstructor
@@ -20,7 +22,8 @@ public class FeedbackController {
     public ResponseEntity<ApiResponse<Void>> sendFeedback(
             @AuthenticationPrincipal SecurityUser currentUser,
             @Valid @RequestBody FeedbackRequest request) {
-        feedbackService.sendFeedback(currentUser.getId(), request);
+        UUID userId = (currentUser != null) ? currentUser.getId() : null;
+        feedbackService.sendFeedback(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Сообщение отправлено", null));
     }
 }
