@@ -3,7 +3,7 @@ package info.prorabka.varamy.exporter;
 public class ExportRunner {
     public static void main(String[] args) {
         // Path to Spring Boot project root
-        String projectPath = "D:\\KatokPro\\varamy";
+        String projectPath = "E:\\KatokPro\\vara_my";
 
         // If path passed as argument, use it
         if (args.length > 0) {

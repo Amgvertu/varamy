@@ -340,27 +340,68 @@ public class NotificationService {
     }
 
     public void sendAdStatusUpdate(Ad ad) {
+        AdResponse adResponse = adMapper.toResponse(ad);
         Map<String, Object> payload = Map.of(
-                "type", "AD_STATUS_UPDATED",
-                "adId", ad.getId().toString(),
-                "status", ad.getStatus().name()
+                "type", "AD_UPDATED",
+                "entityId", ad.getId().toString(),
+                "payload", adResponse
         );
         messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
-        log.info("Status update sent for ad {}", ad.getId());
+        log.info("AD_UPDATED sent for ad {} to /topic/ad/{}/status", ad.getId(), ad.getId());
     }
 
-    /**
-     * Отправить обновление списка откликов (публичный топик)
-     */
-    public void sendResponsesUpdate(Ad ad) {
-        List<ResponseResponse> responses = getPublicResponsesForAd(ad);  // используем свой метод
+    public void sendResponseApproved(Ad ad, Response response) {
+        ResponseResponse dto = responseMapper.toResponse(response);
         Map<String, Object> payload = Map.of(
-                "type", "RESPONSES_UPDATED",
-                "adId", ad.getId().toString(),
-                "responses", responses
+                "type", "RESPONSE_APPROVED",
+                "entityId", response.getId().toString(),
+                "payload", dto
         );
         messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
-        log.info("Responses update sent for ad {}", ad.getId());
+        log.info("RESPONSE_APPROVED sent for response {} to ad {}", response.getId(), ad.getId());
+    }
+
+    public void sendResponseRejected(Ad ad, Response response) {
+        ResponseResponse dto = responseMapper.toResponse(response);
+        Map<String, Object> payload = Map.of(
+                "type", "RESPONSE_REJECTED",
+                "entityId", response.getId().toString(),
+                "payload", dto
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("RESPONSE_REJECTED sent for response {} to ad {}", response.getId(), ad.getId());
+    }
+
+    public void sendResponseAdded(Ad ad, Response response) {
+        ResponseResponse dto = responseMapper.toResponse(response);
+        Map<String, Object> payload = Map.of(
+                "type", "RESPONSE_ADDED",
+                "entityId", response.getId().toString(),
+                "payload", dto
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("RESPONSE_ADDED sent for response {} to ad {}", response.getId(), ad.getId());
+    }
+
+    public void sendApprovalCancelled(Ad ad, Response response) {
+        ResponseResponse dto = responseMapper.toResponse(response);
+        Map<String, Object> payload = Map.of(
+                "type", "APPROVAL_CANCELLED",
+                "entityId", response.getId().toString(),
+                "payload", dto
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("APPROVAL_CANCELLED sent for response {} to ad {}", response.getId(), ad.getId());
+    }
+
+    public void sendResponseRemoved(Ad ad, Response response) {
+        Map<String, Object> payload = Map.of(
+                "type", "RESPONSE_REMOVED",
+                "entityId", response.getId().toString(),
+                "payload", responseMapper.toResponse(response)
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("RESPONSE_REMOVED sent for response {}", response.getId());
     }
 
     /**
@@ -396,41 +437,6 @@ public class NotificationService {
         );
         messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
         log.info("AD_UPDATED sent for ad {}", ad.getId());
-    }
-
-    public void notifyResponsesChanged(Ad ad) {
-        UUID adId = ad.getId();
-        String authorId = ad.getAuthor().getId().toString();
-
-        // 1. Публичный список (только APPROVED)
-        List<Response> approved = responseRepository.findByAdWithUserAndProfile(ad).stream()
-                .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
-                .toList();
-        List<ResponseResponse> publicResponses = approved.stream()
-                .map(responseMapper::toResponse)
-                .toList();
-
-        Map<String, Object> publicPayload = Map.of(
-                "type", "RESPONSES_UPDATED",
-                "entityId", adId.toString(),
-                "responses", publicResponses
-        );
-        messagingTemplate.convertAndSend("/topic/ad/" + adId + "/responses", publicPayload);
-
-        // 2. Полный список для автора (все отклики)
-        List<Response> all = responseRepository.findByAdWithUserAndProfile(ad);
-        List<ResponseResponse> allResponses = all.stream()
-                .map(responseMapper::toResponse)
-                .toList();
-
-        Map<String, Object> authorPayload = Map.of(
-                "type", "RESPONSES_UPDATED",
-                "entityId", adId.toString(),
-                "responses", allResponses
-        );
-        messagingTemplate.convertAndSendToUser(authorId, "/queue/responses", authorPayload);
-
-        log.info("Responses update sent for ad {} (public + author)", adId);
     }
 
     public void sendResponseChanged(Ad ad, Response response, String eventType) {

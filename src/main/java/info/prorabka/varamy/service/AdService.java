@@ -252,6 +252,7 @@ public class AdService {
         }
 
         ad = adRepository.save(ad);
+        notificationService.sendAdStatusUpdate(ad);
         return adMapper.toResponse(ad);
     }
 
@@ -269,6 +270,7 @@ public class AdService {
                 log.info("Архивация объявления id={}, endTime={}, status={}",
                         ad.getId(), ad.getEndTime(), ad.getStatus());
                 ad.setStatus(Ad.AdStatus.ARCHIVED);
+                notificationService.sendAdStatusUpdate(ad);
                 archivedCount++;
             }
         }

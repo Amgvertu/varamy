@@ -68,7 +68,7 @@ public class ResponseService {
         String responderName = (user.getProfile() != null && user.getProfile().getFirstName() != null)
                 ? user.getProfile().getFirstName()
                 : user.getPhone();
-        notificationService.sendResponsesUpdate(ad); // обновить список откликов для всех
+        notificationService.sendResponseAdded(ad, response); // обновить список откликов для всех
         notificationService.onResponseCreated(ad.getAuthor().getId(), adId, response.getId(), responderName);
 
         return responseMapper.toResponse(response);
@@ -147,6 +147,7 @@ public class ResponseService {
 
             // Отправляем уведомление пользователю, чей отклик принят
             String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+            notificationService.sendResponseApproved(ad, response);
             notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
 
             // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
@@ -158,7 +159,7 @@ public class ResponseService {
             // Добавить уведомление об отмене принятия
             String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
             notificationService.onResponseAcceptanceCancelled(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
-
+            notificationService.sendApprovalCancelled(ad, response);
             // --- ОТКЛОНЕНИЕ ОТКЛИКА (REJECTED) ---
         } else if (status == Response.ResponseStatus.REJECTED) {
             if (response.getStatus() == Response.ResponseStatus.APPROVED) {
@@ -168,13 +169,13 @@ public class ResponseService {
             // Добавить уведомление об отклонении
             String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
             notificationService.onResponseRejected(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
-
+            notificationService.sendResponseRejected(ad, response);
         } else {
             throw new BadRequestException("Недопустимый статус");
         }
 
         response = responseRepository.save(response);
-        notificationService.notifyResponsesChanged(ad);
+
         log.info("Статус отклика {} изменён на {}", responseId, status);
         return responseMapper.toResponse(response);
     }
@@ -192,17 +193,22 @@ public class ResponseService {
 
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
-        responseRepository.delete(response);
-        String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), response.getId(), adTitle, response.getUser().getProfile().getFirstName());
 
+        // Удаляем отклик
         responseRepository.delete(response);
+
+        // Уведомление автору объявления
+        String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), response.getId(), adTitle,
+                response.getUser().getProfile().getFirstName());
+
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
         }
-        notificationService.notifyResponsesChanged(ad);
 
+        // Отправляем событие об удалении отклика в публичный топик
+        notificationService.sendResponseRemoved(ad, response);
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
     }
@@ -281,6 +287,4 @@ public class ResponseService {
             return dto;
         });
     }
-
-
 }
