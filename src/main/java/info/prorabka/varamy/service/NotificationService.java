@@ -219,7 +219,7 @@ public class NotificationService {
 
     // ========== ЛОГИКА ГЕНЕРАЦИИ ПО СОБЫТИЯМ ==========
 
-    public void onResponseCreated(UUID adAuthorId, UUID adId, UUID responseId, String responderName) {
+    public void onResponseCreated(UUID adAuthorId, UUID responseId, String responderName) {
         log.info("onResponseCreated: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
@@ -231,7 +231,7 @@ public class NotificationService {
         }
     }
 
-    public void onResponseAccepted(UUID responderId, UUID adId, UUID responseId, String adTitle) {
+    public void onResponseAccepted(UUID responderId, UUID responseId, String adTitle) {
         log.info("onResponseAccepted: responderId={}, adTitle={}", responderId, adTitle);
         NotificationSettings settings = settingsRepository.findByUserId(responderId)
                 .orElseGet(() -> createDefaultSettings(responderId));
@@ -288,29 +288,6 @@ public class NotificationService {
         }
     }
 
-    public void sendTestNotification(UUID userId) {
-        NotificationResponse test = NotificationResponse.builder()
-                .id(0L)
-                .type("TEST")
-                .content("Тестовое уведомление от " + LocalDateTime.now())
-                .createdAt(LocalDateTime.now())
-                .isRead(false)
-                .build();
-
-        try {
-            messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/notifications", test);
-            log.info("Test notification sent to user {}", userId);
-        } catch (Exception e) {
-            log.error("Failed to send test notification to user {}: {}", userId, e.getMessage(), e);
-        }
-
-    }
-
-    private boolean hasActiveWebSocketSession(UUID userId) {
-        SimpUser simpUser = userRegistry.getUser(userId.toString());
-        return simpUser != null && simpUser.hasSessions();
-    }
-
     private boolean shouldSendFcm(UUID userId) {
         Long last = lastFcmSentTime.get(userId);
         if (last == null) {
@@ -319,7 +296,7 @@ public class NotificationService {
         return System.currentTimeMillis() - last > FCM_COOLDOWN_MS;
     }
 
-    public void onResponseWithdrawn(UUID adAuthorId, UUID adId, UUID responseId, String adTitle, String responderName) {
+    public void onResponseWithdrawn(UUID adAuthorId, UUID responseId, String adTitle, String responderName) {
         log.info("onResponseWithdrawn: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
@@ -329,14 +306,6 @@ public class NotificationService {
         } else {
             log.debug("User {} has notifications for RESPONSE_WITHDRAWN disabled", adAuthorId);
         }
-    }
-
-    private List<ResponseResponse> getPublicResponsesForAd(Ad ad) {
-        List<Response> responses = responseRepository.findByAdWithUserAndProfile(ad);
-        return responses.stream()
-                .filter(r -> r.getStatus() == Response.ResponseStatus.APPROVED)
-                .map(responseMapper::toResponse)
-                .collect(Collectors.toList());
     }
 
     public void sendAdStatusUpdate(Ad ad) {
@@ -404,19 +373,6 @@ public class NotificationService {
         log.info("RESPONSE_REMOVED sent for response {}", response.getId());
     }
 
-    /**
-     * Отправить новое объявление в публичный топик (все подписчики)
-     */
-    public void sendNewAdToPublic(Ad ad) {
-        AdResponse adResponse = adMapper.toResponse(ad); // полный DTO
-        Map<String, Object> payload = Map.of(
-                "type", "NEW_AD",
-                "ad", adResponse
-        );
-        messagingTemplate.convertAndSend("/topic/notifications", payload);
-        log.info("New ad sent to public topic: {}", ad.getId());
-    }
-
     public void sendAdCreated(Ad ad) {
         AdResponse adResponse = adMapper.toResponse(ad);
         Map<String, Object> payload = Map.of(
@@ -424,8 +380,10 @@ public class NotificationService {
                 "entityId", ad.getId().toString(),
                 "payload", adResponse
         );
-        messagingTemplate.convertAndSend("/topic/ads", payload);
-        log.info("AD_CREATED sent for ad {}", ad.getId());
+        String destination = "/topic/ads";
+        log.info("🔔 Отправка AD_CREATED в топик {}: {}", destination, payload);
+        messagingTemplate.convertAndSend(destination, payload);
+        log.info("✅ Сообщение AD_CREATED отправлено");
     }
 
     public void sendAdUpdated(Ad ad) {
@@ -437,24 +395,5 @@ public class NotificationService {
         );
         messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
         log.info("AD_UPDATED sent for ad {}", ad.getId());
-    }
-
-    public void sendResponseChanged(Ad ad, Response response, String eventType) {
-        ResponseResponse responseDto = responseMapper.toResponse(response);
-        Map<String, Object> payload = Map.of(
-                "type", eventType,
-                "entityId", response.getId().toString(),
-                "payload", responseDto
-        );
-        // В публичный топик отправляем только если отклик APPROVED
-        if (response.getStatus() == Response.ResponseStatus.APPROVED) {
-            messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
-        }
-        // Автору отправляем всегда (он видит все статусы)
-        messagingTemplate.convertAndSendToUser(
-                ad.getAuthor().getId().toString(),
-                "/queue/responses",
-                payload
-        );
     }
 }

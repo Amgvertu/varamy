@@ -8,8 +8,6 @@ import info.prorabka.varamy.service.AuthService;
 import info.prorabka.varamy.service.UserService;
 import info.prorabka.varamy.service.VerificationService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

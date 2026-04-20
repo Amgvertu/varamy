@@ -69,7 +69,7 @@ public class ResponseService {
                 ? user.getProfile().getFirstName()
                 : user.getPhone();
         notificationService.sendResponseAdded(ad, response); // обновить список откликов для всех
-        notificationService.onResponseCreated(ad.getAuthor().getId(), adId, response.getId(), responderName);
+        notificationService.onResponseCreated(ad.getAuthor().getId(), adId, responderName);
 
         return responseMapper.toResponse(response);
     }
@@ -148,7 +148,7 @@ public class ResponseService {
             // Отправляем уведомление пользователю, чей отклик принят
             String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
             notificationService.sendResponseApproved(ad, response);
-            notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), response.getId(), adTitle);
+            notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), adTitle);
 
             // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
         } else if (status == Response.ResponseStatus.PENDING && response.getStatus() == Response.ResponseStatus.APPROVED) {
@@ -199,7 +199,7 @@ public class ResponseService {
 
         // Уведомление автору объявления
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), response.getId(), adTitle,
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), adTitle,
                 response.getUser().getProfile().getFirstName());
 
         if (wasApproved) {
@@ -218,16 +218,32 @@ public class ResponseService {
     private void updateAcceptedCounts(Ad ad, Response.ResponseRole role, boolean increment) {
         int delta = increment ? 1 : -1;
         if (ad.getType() == 1 && ad.getSubType() == 1) { // вратарь
-            ad.setAcceptedGoaliesCount(ad.getAcceptedGoaliesCount() + delta);
+            int newValue = ad.getAcceptedGoaliesCount() + delta;
+            if (newValue < 0) {
+                throw new BadRequestException("Количество принятых вратарей не может быть отрицательным");
+            }
+            ad.setAcceptedGoaliesCount(newValue);
         } else if (ad.getType() == 1 && ad.getSubType() == 2) { // полевые
             if (role == Response.ResponseRole.DEFENDER) {
-                ad.setAcceptedDefendersCount(ad.getAcceptedDefendersCount() + delta);
+                int newValue = ad.getAcceptedDefendersCount() + delta;
+                if (newValue < 0) {
+                    throw new BadRequestException("Количество принятых защитников не может быть отрицательным");
+                }
+                ad.setAcceptedDefendersCount(newValue);
             } else if (role == Response.ResponseRole.FORWARD) {
-                ad.setAcceptedForwardsCount(ad.getAcceptedForwardsCount() + delta);
+                int newValue = ad.getAcceptedForwardsCount() + delta;
+                if (newValue < 0) {
+                    throw new BadRequestException("Количество принятых нападающих не может быть отрицательным");
+                }
+                ad.setAcceptedForwardsCount(newValue);
             }
         } else {
-            // Остальные типы
-            ad.setAcceptedResponsesCount(ad.getAcceptedResponsesCount() + delta);
+            // Остальные типы (2,3,4)
+            int newValue = ad.getAcceptedResponsesCount() + delta;
+            if (newValue < 0) {
+                throw new BadRequestException("Количество принятых откликов не может быть отрицательным");
+            }
+            ad.setAcceptedResponsesCount(newValue);
         }
     }
 

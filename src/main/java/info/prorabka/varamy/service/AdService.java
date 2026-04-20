@@ -14,7 +14,6 @@ import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.repository.AdRepository;
 import info.prorabka.varamy.repository.CityRepository;
 import info.prorabka.varamy.repository.RinkRepository;
-import info.prorabka.varamy.service.NotificationService;
 import lombok.Builder;
 import lombok.Value;
 import lombok.RequiredArgsConstructor;
@@ -67,14 +66,6 @@ public class AdService {
                         level, pageable)
                 .map(adMapper::toResponse);
     }
-
-    public Page<AdResponse> getMainPageAds(Integer type, Integer subType, List<String> level, Pageable pageable) {
-        return adRepository.findMainPageAdsPublic(
-                        List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
-                        type, subType, level, pageable)
-                .map(adMapper::toResponse);
-    }
-
 
     // ============= ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЯ ПО ID =============
 
@@ -288,7 +279,6 @@ public class AdService {
     public void cleanupOldArchivedAds() {
         LocalDateTime fiveMonthsAgo = LocalDateTime.now().minusMonths(5);
 
-        long countBefore = adRepository.countByStatus(Ad.AdStatus.ARCHIVED);
         List<Ad> oldArchivedAds = adRepository.findByStatusAndCreatedAtBefore(
                 Ad.AdStatus.ARCHIVED, fiveMonthsAgo);
 
