@@ -1,6 +1,7 @@
 package info.prorabka.varamy.controller;
 
 import info.prorabka.varamy.dto.request.AddSubscriptionRequest;
+import info.prorabka.varamy.dto.request.ResponseCancelledRequest;
 import info.prorabka.varamy.dto.request.UpdateNotificationSettingsRequest;
 import info.prorabka.varamy.dto.response.ApiResponse;
 import info.prorabka.varamy.dto.response.NotificationResponse;
@@ -148,5 +149,13 @@ public class NotificationController {
                 .map(s -> s.getId())
                 .collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponse.success(sessions));
+    }
+
+    @PostMapping("/response-cancelled")
+    @Operation(summary = "Уведомить автора объявления об отмене отклика")
+    public ResponseEntity<ApiResponse<Void>> notifyResponseCancelled(
+            @Valid @RequestBody ResponseCancelledRequest request) {
+        notificationService.notifyResponseCancelled(request.getAdId(), request.getUserId());
+        return ResponseEntity.ok(ApiResponse.success("Уведомление отправлено", null));
     }
 }

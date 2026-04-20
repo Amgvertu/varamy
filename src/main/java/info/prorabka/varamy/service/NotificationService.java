@@ -44,6 +44,7 @@ public class NotificationService {
     private final ResponseRepository responseRepository;
     private final ResponseMapper responseMapper;
     private final AdMapper adMapper;
+    private final AdRepository adRepository;
 
     // ========== НАСТРОЙКИ ==========
 
@@ -395,5 +396,19 @@ public class NotificationService {
         );
         messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
         log.info("AD_UPDATED sent for ad {}", ad.getId());
+    }
+
+    public void notifyResponseCancelled(UUID adId, UUID userId) {
+        Ad ad = adRepository.findById(adId)
+                .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
+        User cancellingUser = userService.getUserById(userId);
+
+        String userName = (cancellingUser.getProfile() != null && cancellingUser.getProfile().getFirstName() != null)
+                ? cancellingUser.getProfile().getFirstName()
+                : cancellingUser.getPhone();
+
+        String content = String.format("Пользователь %s отменил свой отклик на ваше объявление", userName);
+
+        createAndSendNotification(ad.getAuthor().getId(), "RESPONSE_CANCELLED", content, adId);
     }
 }
