@@ -69,7 +69,7 @@ public class ResponseService {
                 ? user.getProfile().getFirstName()
                 : user.getPhone();
         notificationService.sendResponseAdded(ad, response); // обновить список откликов для всех
-        notificationService.onResponseCreated(ad.getAuthor().getId(), adId, responderName);
+        notificationService.onResponseCreated(ad.getAuthor().getId(), response.getId(), responderName);
 
         return responseMapper.toResponse(response);
     }
@@ -148,7 +148,7 @@ public class ResponseService {
             // Отправляем уведомление пользователю, чей отклик принят
             String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
             notificationService.sendResponseApproved(ad, response);
-            notificationService.onResponseAccepted(response.getUser().getId(), ad.getId(), adTitle);
+            notificationService.onResponseAccepted(response.getUser().getId(), response.getId(), adTitle);
 
             // --- ОТМЕНА ПРИНЯТИЯ (PENDING из APPROVED) ---
         } else if (status == Response.ResponseStatus.PENDING && response.getStatus() == Response.ResponseStatus.APPROVED) {
@@ -194,20 +194,24 @@ public class ResponseService {
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
 
+        // Получаем имя пользователя, откликнувшегося
+        String responderName = (response.getUser().getProfile() != null && response.getUser().getProfile().getFirstName() != null)
+                ? response.getUser().getProfile().getFirstName()
+                : response.getUser().getPhone();
+
         // Удаляем отклик
         responseRepository.delete(response);
 
-        // Уведомление автору объявления
+        // Уведомление автору объявления (личное)
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), adTitle,
-                response.getUser().getProfile().getFirstName());
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), response.getId(), adTitle, responderName);
 
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
         }
 
-        // Отправляем событие об удалении отклика в публичный топик
+        // Отправляем публичное событие об удалении отклика
         notificationService.sendResponseRemoved(ad, response);
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
