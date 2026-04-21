@@ -9,6 +9,8 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Slf4j
 @Configuration
@@ -26,19 +28,28 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.authChannelInterceptor = authChannelInterceptor;
     }
 
+    @Bean
+    public ThreadPoolTaskScheduler webSocketTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(4);
+        scheduler.setThreadNamePrefix("ws-heartbeat-");
+        scheduler.initialize();
+        return scheduler;
+    }
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         log.info("Регистрация STOMP эндпоинта /ws");
         registry.addEndpoint("/ws")
                 .setAllowedOrigins("*")
                 .addInterceptors(new JwtHandshakeInterceptor(jwtService, userService));
-        // Не используем SockJS, если клиент использует raw WebSocket
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Простой брокер без heartbeat – работает отлично
-        registry.enableSimpleBroker("/queue", "/topic");
+        registry.enableSimpleBroker("/queue", "/topic")
+                .setHeartbeatValue(new long[]{10000, 10000})   // клиент и сервер каждые 10 сек
+                .setTaskScheduler(webSocketTaskScheduler());  // ОБЯЗАТЕЛЬНО!
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
