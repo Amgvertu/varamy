@@ -20,8 +20,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -195,26 +198,51 @@ public class ResponseService {
 
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
+        Response.ResponseRole role = response.getResponseRole();
 
-        // 1. Удаляем все уведомления, ссылающиеся на этот отклик (чтобы не нарушить FK)
+        // Данные для уведомлений
+        UUID adAuthorId = ad.getAuthor().getId();
+        UUID adId = ad.getId();
+        String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
+        String responderName = (response.getUser().getProfile() != null &&
+                response.getUser().getProfile().getFirstName() != null)
+                ? response.getUser().getProfile().getFirstName()
+                : response.getUser().getPhone();
+        ResponseResponse responseDto = responseMapper.toResponse(response);
+
+        // 1. Удаляем уведомления
         notificationRepository.deleteByRelatedEntityId(responseId);
 
-        // 2. Удаляем отклик
+        // 2. Разрываем связь с объявлением
+        if (ad.getResponses() != null) {
+            ad.getResponses().remove(response);
+        }
+
+        // 3. Удаляем отклик
         responseRepository.delete(response);
 
-        // 3. Уведомляем автора объявления (используем adId, а не responseId, так как отклик уже удалён)
-        String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), adTitle,
-                response.getUser().getProfile().getFirstName());
-
-        // 4. Обновляем счётчики и статус объявления, если отклик был принят
+        // 4. Обновляем счётчики объявления
         if (wasApproved) {
-            updateAcceptedCounts(ad, response.getResponseRole(), false);
+            updateAcceptedCounts(ad, role, false);
             checkAndUpdateAdStatus(ad);
         }
 
-        // 5. Отправляем публичное событие RESPONSE_REMOVED (оно не требует FK, так как только отправка)
-        notificationService.sendResponseRemoved(ad, response);
+        // 5. Отложенная отправка уведомлений
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    notificationService.onResponseWithdrawn(adAuthorId, adId, adTitle, responderName);
+                } catch (Exception e) {
+                    log.error("Ошибка отправки onResponseWithdrawn", e);
+                }
+                try {
+                    notificationService.sendResponseRemoved(ad, responseDto);
+                } catch (Exception e) {
+                    log.error("Ошибка отправки RESPONSE_REMOVED", e);
+                }
+            }
+        });
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
     }

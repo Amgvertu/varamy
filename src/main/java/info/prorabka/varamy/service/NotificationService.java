@@ -411,4 +411,14 @@ public class NotificationService {
 
         createAndSendNotification(ad.getAuthor().getId(), "RESPONSE_CANCELLED", content, adId);
     }
+
+    public void sendResponseRemoved(Ad ad, ResponseResponse responseDto) {
+        Map<String, Object> payload = Map.of(
+                "type", "RESPONSE_REMOVED",
+                "entityId", responseDto.getId().toString(),
+                "payload", responseDto
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/responses", payload);
+        log.info("RESPONSE_REMOVED sent for response {}", responseDto.getId());
+    }
 }

@@ -48,7 +48,7 @@ server:
 
 jwt:
   secret: ${JWT_SECRET:mySecretKeyForJWTTokenGenerationMustBeAtLeast32CharactersLong}
-  access-token-expiration: 1800000 # 30 минут
+  access-token-expiration: 86400000 # 24 часа
   refresh-token-expiration: 604800000 # 7 дней
 
 logging:
@@ -59,6 +59,11 @@ logging:
     org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: DEBUG
+    org.springframework.transaction: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.transaction.interceptor: TRACE
+    org.springframework.orm.jpa: DEBUG
 
 file:
   upload-dir: uploads   # абсолютный путь на сервере

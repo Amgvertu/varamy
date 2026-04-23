@@ -60,6 +60,9 @@ logging:
     org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: DEBUG
+    org.springframework.transaction: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
 
 file:
   upload-dir: uploads   # абсолютный путь на сервере

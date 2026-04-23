@@ -3938,6 +3938,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Transactional
     @Query("UPDATE Notification n SET n.isRead = true WHERE n.user.id = :userId AND n.id IN :ids")
     int markAsRead(@Param("userId") UUID userId, @Param("ids") List<Long> ids);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM Notification n WHERE n.relatedEntityId = :entityId")
+    void deleteByRelatedEntityId(@Param("entityId") UUID entityId);
 }
 
 ======================= info/prorabka/varamy/repository/NotificationSettingsRepository.java =======================
@@ -5798,13 +5803,13 @@ public class NotificationService {
         return System.currentTimeMillis() - last > FCM_COOLDOWN_MS;
     }
 
-    public void onResponseWithdrawn(UUID adAuthorId, UUID responseId, String adTitle, String responderName) {
+    public void onResponseWithdrawn(UUID adAuthorId, UUID adId, String adTitle, String responderName) {
         log.info("onResponseWithdrawn: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
         if (settings.isNotifyOnResponseToMyAd()) {
             String content = String.format("Пользователь %s отозвал свой отклик на объявление \"%s\"", responderName, adTitle);
-            createAndSendNotification(adAuthorId, "RESPONSE_WITHDRAWN", content, responseId);
+            createAndSendNotification(adAuthorId, "RESPONSE_WITHDRAWN", content, adId);
         } else {
             log.debug("User {} has notifications for RESPONSE_WITHDRAWN disabled", adAuthorId);
         }
@@ -6075,6 +6080,7 @@ import info.prorabka.varamy.exception.UnauthorizedException;
 import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.mapper.ResponseMapper;
 import info.prorabka.varamy.repository.AdRepository;
+import info.prorabka.varamy.repository.NotificationRepository;
 import info.prorabka.varamy.repository.ResponseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -6098,6 +6104,7 @@ public class ResponseService {
     private final UserService userService;
     private final NotificationService notificationService;
     private final AdMapper adMapper;
+    private final NotificationRepository notificationRepository;
 
     // ============================== СОЗДАНИЕ ОТКЛИКА ==============================
 
@@ -6257,20 +6264,26 @@ public class ResponseService {
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
 
-        // Удаляем отклик
+        // 1. Удаляем все уведомления, связанные с этим откликом (чтобы не нарушить FK)
+        notificationRepository.deleteByRelatedEntityId(responseId);
+
+        // 2. Удаляем отклик
         responseRepository.delete(response);
 
-        // Уведомление автору объявления
+        // 3. Уведомляем автора объявления (используем adId, так как отклик уже удалён)
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), response.getId(), adTitle,
-                response.getUser().getProfile().getFirstName());
+        String responderName = (response.getUser().getProfile() != null && response.getUser().getProfile().getFirstName() != null)
+                ? response.getUser().getProfile().getFirstName()
+                : response.getUser().getPhone();
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), adTitle, responderName);
 
+        // 4. Обновляем счётчики и статус объявления, если отклик был принят
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
         }
 
-        // Отправляем публичное событие об удалении отклика
+        // 5. Отправляем публичное событие об удалении
         notificationService.sendResponseRemoved(ad, response);
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
