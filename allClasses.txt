@@ -6257,17 +6257,13 @@ public class ResponseService {
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
 
-        // ѕолучаем им€ пользовател€, откликнувшегос€
-        String responderName = (response.getUser().getProfile() != null && response.getUser().getProfile().getFirstName() != null)
-                ? response.getUser().getProfile().getFirstName()
-                : response.getUser().getPhone();
-
         // ”дал€ем отклик
         responseRepository.delete(response);
 
-        // ”ведомление автору объ€влени€ (личное)
+        // ”ведомление автору объ€влени€
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объ€вление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), response.getId(), adTitle, responderName);
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), response.getId(), adTitle,
+                response.getUser().getProfile().getFirstName());
 
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);

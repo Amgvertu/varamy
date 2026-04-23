@@ -297,13 +297,13 @@ public class NotificationService {
         return System.currentTimeMillis() - last > FCM_COOLDOWN_MS;
     }
 
-    public void onResponseWithdrawn(UUID adAuthorId, UUID responseId, String adTitle, String responderName) {
+    public void onResponseWithdrawn(UUID adAuthorId, UUID adId, String adTitle, String responderName) {
         log.info("onResponseWithdrawn: adAuthorId={}, responderName={}", adAuthorId, responderName);
         NotificationSettings settings = settingsRepository.findByUserId(adAuthorId)
                 .orElseGet(() -> createDefaultSettings(adAuthorId));
         if (settings.isNotifyOnResponseToMyAd()) {
             String content = String.format("Пользователь %s отозвал свой отклик на объявление \"%s\"", responderName, adTitle);
-            createAndSendNotification(adAuthorId, "RESPONSE_WITHDRAWN", content, responseId);
+            createAndSendNotification(adAuthorId, "RESPONSE_WITHDRAWN", content, adId);
         } else {
             log.debug("User {} has notifications for RESPONSE_WITHDRAWN disabled", adAuthorId);
         }

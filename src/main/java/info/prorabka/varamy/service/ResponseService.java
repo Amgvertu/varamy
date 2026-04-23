@@ -12,6 +12,7 @@ import info.prorabka.varamy.exception.UnauthorizedException;
 import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.mapper.ResponseMapper;
 import info.prorabka.varamy.repository.AdRepository;
+import info.prorabka.varamy.repository.NotificationRepository;
 import info.prorabka.varamy.repository.ResponseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class ResponseService {
     private final UserService userService;
     private final NotificationService notificationService;
     private final AdMapper adMapper;
+    private final NotificationRepository notificationRepository;
 
     // ============================== СОЗДАНИЕ ОТКЛИКА ==============================
 
@@ -194,24 +196,24 @@ public class ResponseService {
         Ad ad = response.getAd();
         boolean wasApproved = response.getStatus() == Response.ResponseStatus.APPROVED;
 
-        // Получаем имя пользователя, откликнувшегося
-        String responderName = (response.getUser().getProfile() != null && response.getUser().getProfile().getFirstName() != null)
-                ? response.getUser().getProfile().getFirstName()
-                : response.getUser().getPhone();
+        // 1. Удаляем все уведомления, ссылающиеся на этот отклик (чтобы не нарушить FK)
+        notificationRepository.deleteByRelatedEntityId(responseId);
 
-        // Удаляем отклик
+        // 2. Удаляем отклик
         responseRepository.delete(response);
 
-        // Уведомление автору объявления (личное)
+        // 3. Уведомляем автора объявления (используем adId, а не responseId, так как отклик уже удалён)
         String adTitle = ad.getTeam() != null ? ad.getTeam() : "объявление";
-        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), response.getId(), adTitle, responderName);
+        notificationService.onResponseWithdrawn(ad.getAuthor().getId(), ad.getId(), adTitle,
+                response.getUser().getProfile().getFirstName());
 
+        // 4. Обновляем счётчики и статус объявления, если отклик был принят
         if (wasApproved) {
             updateAcceptedCounts(ad, response.getResponseRole(), false);
             checkAndUpdateAdStatus(ad);
         }
 
-        // Отправляем публичное событие об удалении отклика
+        // 5. Отправляем публичное событие RESPONSE_REMOVED (оно не требует FK, так как только отправка)
         notificationService.sendResponseRemoved(ad, response);
 
         log.info("Удалён отклик {} пользователем {}", responseId, userId);
