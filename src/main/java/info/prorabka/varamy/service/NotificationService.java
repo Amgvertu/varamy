@@ -387,6 +387,16 @@ public class NotificationService {
         log.info("✅ Сообщение AD_CREATED отправлено");
     }
 
+    public void sendAdDeleted(Ad ad) {
+        Map<String, Object> payload = Map.of(
+                "type", "AD_DELETED",
+                "entityId", ad.getId().toString()
+                // payload не обязателен, можно передать только id
+        );
+        messagingTemplate.convertAndSend("/topic/ad/" + ad.getId() + "/status", payload);
+        log.info("AD_DELETED sent for ad {}", ad.getId());
+    }
+
     public void sendAdUpdated(Ad ad) {
         AdResponse adResponse = adMapper.toResponse(ad);
         Map<String, Object> payload = Map.of(

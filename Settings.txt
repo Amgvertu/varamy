@@ -3,7 +3,7 @@ spring:
   application:
     name: varamy
   mail:
-    host: smtp.beget.com   # например, smtp.yandex.ru
+    host: smtp.beget.com   # РЅР°РїСЂРёРјРµСЂ, smtp.yandex.ru
     port: 465
     username: katok@katok.pro
     password: ${MAIL_PASSWORD}
@@ -24,8 +24,8 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 5MB      # максимальный размер одного файла`
-      max-request-size: 5MB   # общий размер всего запроса (включая другие поля)
+      max-file-size: 5MB      # РјР°РєСЃРёРјР°Р»СЊРЅС‹Р№ СЂР°Р·РјРµСЂ РѕРґРЅРѕРіРѕ С„Р°Р№Р»Р°`
+      max-request-size: 5MB   # РѕР±С‰РёР№ СЂР°Р·РјРµСЂ РІСЃРµРіРѕ Р·Р°РїСЂРѕСЃР° (РІРєР»СЋС‡Р°СЏ РґСЂСѓРіРёРµ РїРѕР»СЏ)
 
   jpa:
     hibernate:
@@ -49,13 +49,13 @@ server:
 
 jwt:
   secret: ${JWT_SECRET:mySecretKeyForJWTTokenGenerationMustBeAtLeast32CharactersLong}
-  access-token-expiration: 1800000 # 30 минут
-  refresh-token-expiration: 604800000 # 7 дней
+  access-token-expiration: 86400000 # 24 С‡Р°СЃР°
+  refresh-token-expiration: 604800000 # 7 РґРЅРµР№
 
 logging:
   level:
     info.prorabka.varamy: DEBUG
-    info.prorabka.varamy.config: INFO   # явно для конфигурационных классов
+    info.prorabka.varamy.config: INFO   # СЏРІРЅРѕ РґР»СЏ РєРѕРЅС„РёРіСѓСЂР°С†РёРѕРЅРЅС‹С… РєР»Р°СЃСЃРѕРІ
     org.springframework.web: DEBUG
     org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
@@ -63,16 +63,18 @@ logging:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: DEBUG
     org.springframework.transaction: TRACE
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.transaction.interceptor: TRACE
+    org.springframework.orm.jpa: DEBUG
 
 file:
-  upload-dir: uploads   # абсолютный путь на сервере
+  upload-dir: uploads   # Р°Р±СЃРѕР»СЋС‚РЅС‹Р№ РїСѓС‚СЊ РЅР° СЃРµСЂРІРµСЂРµ
 
 sms:
-  mock-mode: true  # true - режим разработки (логирование), false - реальная отправка SMS
+  mock-mode: true  # true - СЂРµР¶РёРј СЂР°Р·СЂР°Р±РѕС‚РєРё (Р»РѕРіРёСЂРѕРІР°РЅРёРµ), false - СЂРµР°Р»СЊРЅР°СЏ РѕС‚РїСЂР°РІРєР° SMS
 
 verification:
   code:
-    expiry-minutes: 5  # Время жизни кода подтверждения (минут)
+    expiry-minutes: 5  # Р’СЂРµРјСЏ Р¶РёР·РЅРё РєРѕРґР° РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ (РјРёРЅСѓС‚)
 
 app:
   cors:
@@ -104,9 +106,9 @@ app:
     allow-credentials: true
     max-age: 3600
     cleanup:
-      archive-months: 5  # Количество месяцев хранения архивных объявлений
-      archive-cron: "0 0 3 * * ?"  # Ежедневно в 3 часа ночи
-  base-url: https://varamy.online/api   # внешний URL с префиксом /api2
+      archive-months: 5  # РљРѕР»РёС‡РµСЃС‚РІРѕ РјРµСЃСЏС†РµРІ С…СЂР°РЅРµРЅРёСЏ Р°СЂС…РёРІРЅС‹С… РѕР±СЉСЏРІР»РµРЅРёР№
+      archive-cron: "0 0 3 * * ?"  # Р•Р¶РµРґРЅРµРІРЅРѕ РІ 3 С‡Р°СЃР° РЅРѕС‡Рё
+  base-url: https://varamy.online/api   # РІРЅРµС€РЅРёР№ URL СЃ РїСЂРµС„РёРєСЃРѕРј /api2
 
 springdoc:
   api-docs:
@@ -145,7 +147,7 @@ org.gradle.daemon=true
 ======================= build.gradle =======================
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.2.5'  // последняя стабильная
+	id 'org.springframework.boot' version '3.2.5'  // РїРѕСЃР»РµРґРЅСЏСЏ СЃС‚Р°Р±РёР»СЊРЅР°СЏ
 	id 'io.spring.dependency-management' version '1.1.5'
 }
 
@@ -186,15 +188,15 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
 
-	// Lombok - сначала Lombok
+	// Lombok - СЃРЅР°С‡Р°Р»Р° Lombok
 	compileOnly 'org.projectlombok:lombok:1.18.30'
 	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	// MapStruct - после Lombok
+	// MapStruct - РїРѕСЃР»Рµ Lombok
 	implementation 'org.mapstruct:mapstruct:1.5.5.Final'
 	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
 
-	// Для интеграции Lombok с MapStruct
+	// Р”Р»СЏ РёРЅС‚РµРіСЂР°С†РёРё Lombok СЃ MapStruct
 	annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
 
 	//SpringDoc
@@ -220,7 +222,7 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
-// Явное указание совместимости с Java
+// РЇРІРЅРѕРµ СѓРєР°Р·Р°РЅРёРµ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё СЃ Java
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
 	options.release.set(21)

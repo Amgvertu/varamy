@@ -221,11 +221,11 @@ public class AdService {
     public void deleteAd(UUID adId, UUID userId, boolean isAdmin) {
         Ad ad = adRepository.findById(adId)
                 .orElseThrow(() -> new ResourceNotFoundException("Объявление не найдено"));
-
         if (!isAdmin && !ad.getAuthor().getId().equals(userId)) {
             throw new UnauthorizedException("Нет прав на удаление этого объявления");
         }
-
+        // Перед удалением отправляем событие
+        notificationService.sendAdDeleted(ad);
         adRepository.delete(ad);
     }
 
@@ -274,7 +274,7 @@ public class AdService {
 
     // ============= ОЧИСТКА СТАРЫХ АРХИВНЫХ ОБЪЯВЛЕНИЙ =============
 
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(cron = "0 0 1 * * ?")
     @Transactional
     public void cleanupOldArchivedAds() {
         LocalDateTime fiveMonthsAgo = LocalDateTime.now().minusMonths(5);
