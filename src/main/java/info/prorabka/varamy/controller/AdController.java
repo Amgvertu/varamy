@@ -1,5 +1,6 @@
 package info.prorabka.varamy.controller;
 
+import info.prorabka.varamy.dto.request.AdFilterRequest;
 import info.prorabka.varamy.dto.request.AdRequest;
 import info.prorabka.varamy.dto.response.AdResponse;
 import info.prorabka.varamy.dto.response.ApiResponse;
@@ -162,6 +163,17 @@ public class AdController {
             @AuthenticationPrincipal SecurityUser currentUser,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<AdResponse> ads = adService.getMyAds(currentUser.getId(), pageable);
+        return ResponseEntity.ok(ApiResponse.success(ads));
+    }
+
+    @GetMapping("/filter")
+    @Operation(summary = "Расширенная фильтрация объявлений",
+            description = "Возвращает объявления со статусами ACTIVE и FILLED, поддерживая фильтры по городу, типу, дате, времени, ЛДС.")
+    public ResponseEntity<ApiResponse<Page<AdResponse>>> getFilteredAds(
+            @Parameter(description = "Фильтры", required = true)
+            @ModelAttribute AdFilterRequest filterRequest,   // используем @ModelAttribute для query параметров
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<AdResponse> ads = adService.getFilteredAds(filterRequest, pageable);
         return ResponseEntity.ok(ApiResponse.success(ads));
     }
 }

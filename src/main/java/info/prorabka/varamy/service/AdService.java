@@ -1,5 +1,6 @@
 package info.prorabka.varamy.service;
 
+import info.prorabka.varamy.dto.request.AdFilterRequest;
 import info.prorabka.varamy.dto.request.AdRequest;
 import info.prorabka.varamy.dto.response.AdResponse;
 import info.prorabka.varamy.dto.response.DuplicateAdResponse;
@@ -14,12 +15,14 @@ import info.prorabka.varamy.mapper.AdMapper;
 import info.prorabka.varamy.repository.AdRepository;
 import info.prorabka.varamy.repository.CityRepository;
 import info.prorabka.varamy.repository.RinkRepository;
+import info.prorabka.varamy.specification.AdSpecifications;
 import lombok.Builder;
 import lombok.Value;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,6 +68,20 @@ public class AdService {
                         List.of(Ad.AdStatus.ACTIVE, Ad.AdStatus.FILLED),
                         level, pageable)
                 .map(adMapper::toResponse);
+    }
+
+    public Page<AdResponse> getFilteredAds(AdFilterRequest filter, Pageable pageable) {
+        Specification<Ad> spec = Specification.where(AdSpecifications.hasStatuses())
+                .and(AdSpecifications.hasCityId(filter.getCityId()))
+                .and(AdSpecifications.hasType(filter.getType()))
+                .and(AdSpecifications.hasSubType(filter.getSubType()))
+                .and(AdSpecifications.hasRole(filter.getRole()))
+                .and(AdSpecifications.hasLevels(filter.getLevel()))
+                .and(AdSpecifications.dateBetween(filter.getDateFrom(), filter.getDateTo()))
+                .and(AdSpecifications.timeBetween(filter.getTimeFrom(), filter.getTimeTo()))
+                .and(AdSpecifications.hasRinkIds(filter.getRinkIds()));
+
+        return adRepository.findAll(spec, pageable).map(adMapper::toResponse);
     }
 
     // ============= ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЯ ПО ID =============
